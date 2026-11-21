@@ -10,6 +10,7 @@ export class SoundManager {
     this.bpm = 128;
     this.currentStep = 0;
     this.timerId = null;
+    this.nextBeatTime = 0;
     this.speechEnabled = 'speechSynthesis' in window;
     this.voiceEnabled = true;
     this.lastVoiceTime = 0;
@@ -111,6 +112,7 @@ export class SoundManager {
     if (this.isPlayingMusic) return;
     this.isPlayingMusic = true;
     this.currentStep = 0;
+    this.nextBeatTime = this.ctx.currentTime + 0.05;
     this.scheduleNextBeat();
   }
 
@@ -120,42 +122,44 @@ export class SoundManager {
       clearTimeout(this.timerId);
       this.timerId = null;
     }
+    this.nextBeatTime = 0;
   }
 
   scheduleNextBeat() {
     if (!this.isPlayingMusic || !this.ctx) return;
-
-    const stepInterval = (60 / this.bpm) / 4; // 16th note step
-    const time = this.ctx.currentTime + 0.05;
-
-    // 16-step patterns
-    const step = this.currentStep % 16;
-
-    // Kick on 0, 4, 8, 12 (4-on-the-floor)
-    if (step % 4 === 0) {
-      this.playKick(time);
+    // AudioContext time pauses during autoplay blocking and background-tab
+    // suspension. Keep polling without advancing the musical clock until it
+    // runs again, then queue several beats ahead to absorb main-thread stalls.
+    if (this.ctx.state !== 'running') {
+      this.timerId = setTimeout(() => this.scheduleNextBeat(), 40);
+      return;
     }
 
-    // Snare / Clap on 4, 12
-    if (step === 4 || step === 12) {
-      this.playSnare(time);
+    const lookAhead = 0.15;
+    // If the tab was backgrounded and its timer throttled, skip stale beats
+    // instead of trying to emit a burst of overdue notes on return.
+    const stepInterval = (60 / this.bpm) / 4;
+    if (this.nextBeatTime < this.ctx.currentTime - stepInterval) {
+      const missedSteps = Math.ceil((this.ctx.currentTime - this.nextBeatTime) / stepInterval);
+      this.currentStep += missedSteps;
+      this.nextBeatTime += missedSteps * stepInterval;
+    }
+    while (this.nextBeatTime < this.ctx.currentTime + lookAhead) {
+      const time = this.nextBeatTime;
+      const step = this.currentStep % 16;
+
+      if (step % 4 === 0) this.playKick(time);
+      if (step === 4 || step === 12) this.playSnare(time);
+      if (step % 2 === 0) this.playHiHat(time, step % 4 === 2);
+
+      const bassNotes = [55, 55, 65.41, 55, 55, 73.42, 55, 49];
+      if (step % 2 === 0) this.playBassNote(time, bassNotes[Math.floor(step / 2) % bassNotes.length]);
+
+      this.currentStep++;
+      this.nextBeatTime += (60 / this.bpm) / 4;
     }
 
-    // Hi-Hats: closed on even steps, open on off-beats (step 2, 6, 10, 14)
-    if (step % 2 === 0) {
-      const isOpen = (step % 4 === 2);
-      this.playHiHat(time, isOpen);
-    }
-
-    // Bassline groove (Driving syncopated synth bass)
-    const bassNotes = [55, 55, 65.41, 55, 55, 73.42, 55, 49]; // A1, C2, D2, G1
-    if (step % 2 === 0) {
-      const noteIdx = Math.floor(step / 2) % bassNotes.length;
-      this.playBassNote(time, bassNotes[noteIdx]);
-    }
-
-    this.currentStep++;
-    this.timerId = setTimeout(() => this.scheduleNextBeat(), stepInterval * 1000);
+    this.timerId = setTimeout(() => this.scheduleNextBeat(), 25);
   }
 
   playKick(time) {

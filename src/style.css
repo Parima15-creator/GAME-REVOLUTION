@@ -2153,6 +2153,44 @@ button:hover, .btn:hover, .btn-ghost:hover { filter: brightness(1.15); box-shado
 .summary-card { max-width: 760px; }
 .summary-title { font-family: var(--font-display); }
 .home-title, .modal-title, .summary-title, .panel-value, .score-text, .score-number, .summary-stat-box .stat-value, .hs-value, .countdown-num { font-family: var(--font-display); }
+
+/* Keep the same temple framing and embers visible behind the finish HUD. */
+#summary-modal.modal-backdrop { background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; }
+#summary-modal::before {
+  content: ''; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background: radial-gradient(ellipse at 50% 42%, rgba(5, 7, 11, .2) 0%, rgba(5, 7, 11, .56) 58%, rgba(3, 4, 7, .86) 100%),
+    linear-gradient(180deg, rgba(4, 6, 10, .45), transparent 38%, rgba(4, 6, 10, .74));
+}
+#summary-modal .summary-embers { z-index: 1; }
+#summary-modal .summary-card {
+  position: relative; z-index: 2;
+  background: rgba(15, 18, 24, .78);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+}
+
+/* Reuse the menu's corridor vignette and ember field behind the finish HUD. */
+#summary-modal.modal-backdrop {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+#summary-modal::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 50% 42%, rgba(5, 7, 11, .2) 0%, rgba(5, 7, 11, .56) 58%, rgba(3, 4, 7, .86) 100%),
+    linear-gradient(180deg, rgba(4, 6, 10, .45), transparent 38%, rgba(4, 6, 10, .74));
+}
+#summary-modal .summary-embers { z-index: 1; }
+#summary-modal .summary-card {
+  z-index: 2;
+  background: rgba(15, 18, 24, .78);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
 .summary-badge { font: 700 13px var(--font-mono); letter-spacing: 1.4px; padding: 7px 16px; }
 .summary-actions { gap: 20px; margin-top: 16px; }
 .summary-actions .btn-primary { min-width: 220px; font-family: var(--font-display); }
@@ -3946,3 +3984,46 @@ button:hover, .btn:hover, .btn-ghost:hover { filter: brightness(1.12); box-shado
   .calib-actions .btn { padding: 8px; font-size: 10px; }
 }
 .home-title, .modal-title, .summary-title, .panel-value, .score-text, .score-number, .summary-stat-box .stat-value, .hs-value, .countdown-num { font-family: var(--font-display); }
+
+/* Game over uses the menu corridor framing and animated ember field. */
+#summary-modal.modal-backdrop { background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; }
+#summary-modal::before {
+  content: ''; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background: radial-gradient(ellipse at 50% 42%, rgba(5, 7, 11, .2) 0%, rgba(5, 7, 11, .56) 58%, rgba(3, 4, 7, .86) 100%),
+    linear-gradient(180deg, rgba(4, 6, 10, .45), transparent 38%, rgba(4, 6, 10, .74));
+}
+#summary-modal .summary-embers { z-index: 1; }
+#summary-modal .summary-card {
+  position: relative; z-index: 2;
+  background: rgba(15, 18, 24, .78);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+}
+#summary-modal::before { animation: none; }
+
+/* Calibration preview: one clean status cue and a full-height camera reticle. */
+#cal-step-1 .cal-hint { display: none; }
+#calibration-modal .calibration-preview-box {
+  height: auto;
+  min-height: clamp(245px, 34vh, 380px);
+  align-self: stretch;
+}
+#calibration-modal .calibration-preview-box::after {
+  content: '';
+  position: absolute;
+  inset: 12px;
+  pointer-events: none;
+  z-index: 4;
+  background:
+    linear-gradient(#ff9a45, #ff9a45) left top / 22px 2px no-repeat,
+    linear-gradient(#ff9a45, #ff9a45) left top / 2px 22px no-repeat,
+    linear-gradient(#ff9a45, #ff9a45) right top / 22px 2px no-repeat,
+    linear-gradient(#ff9a45, #ff9a45) right top / 2px 22px no-repeat,
+    linear-gradient(#ff9a45, #ff9a45) left bottom / 22px 2px no-repeat,
+    linear-gradient(#ff9a45, #ff9a45) left bottom / 2px 22px no-repeat,
+    linear-gradient(#ff9a45, #ff9a45) right bottom / 22px 2px no-repeat,
+    linear-gradient(#ff9a45, #ff9a45) right bottom / 2px 22px no-repeat;
+  opacity: .75;
+}
+@media (max-width: 700px) {
+  #calibration-modal .calibration-preview-box { height: 125px; min-height: 125px; }
+}

@@ -310,6 +310,19 @@ export class Environment {
 
     this.emberParticles = new THREE.Points(geometry, material);
     this.scene.add(this.emberParticles);
+    this.initialEmberPositions = positions.slice();
+  }
+
+  reset() {
+    this.currentFrontZ = -this.segmentLength * (this.totalSegments - 1);
+    this.segments.forEach((segment, index) => {
+      segment.position.z = -index * this.segmentLength;
+    });
+    if (this.emberParticles && this.initialEmberPositions) {
+      const position = this.emberParticles.geometry.attributes.position;
+      position.array.set(this.initialEmberPositions);
+      position.needsUpdate = true;
+    }
   }
 
   update(playerZ, delta) {

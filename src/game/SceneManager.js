@@ -137,6 +137,26 @@ export class SceneManager {
     // Punch impacts use screen shake and flash instead of visual freezing
   }
 
+  resetToMenu() {
+    this.camera.fov = 75;
+    this.camera.aspect = this.width / this.height;
+    this.camera.updateProjectionMatrix();
+    this.playerLaneX = 0;
+    this.currentCameraX = 0;
+    this.playerY = 1.75;
+    this.currentCameraY = 1.75;
+    this.cameraRoll = 0;
+    this.bobPhase = 0;
+    this.shakeIntensity = 0;
+    this.hitStopFrames = 0;
+    this.camera.position.set(0, 1.75, 0);
+    this.camera.rotation.set(0, 0, 0);
+    this.playerLight.position.set(0, 1.55, -1);
+    this.dirLight.position.z = 10;
+    this.dirLight.target.position.z = -20;
+    this.dirLight.target.updateMatrixWorld();
+  }
+
   update(playerZ, runSpeed, isJumping, isSquatting, targetLaneX, delta) {
     // Smooth lateral lane tracking (A/D or side-step)
     this.playerLaneX = targetLaneX;

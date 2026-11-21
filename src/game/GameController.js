@@ -107,6 +107,9 @@ export class GameController {
       holdRef: null,       // reference pose for the stillness check
       baselineLocked: false,
       tested: { jump: false, squat: false, step: false, punch: false },
+      moveTestArmed: false,
+      moveArmFor: 0,
+      previousMotion: null,
       hint: '',
     };
     this.calibAutoStart = false;
@@ -311,8 +314,8 @@ export class GameController {
       this.openCalibration();
     });
 
-    const emberField = document.querySelector('.home-embers');
-    if (emberField && !emberField.childElementCount) {
+    document.querySelectorAll('.home-embers').forEach((emberField) => {
+      if (emberField.childElementCount) return;
       for (let i = 0; i < 22; i++) {
         const ember = document.createElement('i');
         ember.style.setProperty('--x', `${(i * 47 + 13) % 100}%`);
@@ -323,7 +326,7 @@ export class GameController {
         ember.style.setProperty('--alpha', `${0.25 + (i % 5) * 0.1}`);
         emberField.appendChild(ember);
       }
-    }
+    });
 
     // Keyboard shortcuts on the home screen
     window.addEventListener('keydown', (e) => {
@@ -434,6 +437,21 @@ export class GameController {
     }
   }
 
+  resetTempleBackdrop() {
+    this.playerZ = 0;
+    this.runSpeed = 10.5;
+    this.targetLaneX = 0;
+    this.isJumping = false;
+    this.isSquatting = false;
+    this.obstacleManager.reset();
+    this.monsterManager.reset();
+    this.playerHands.resetPunches();
+    this.chaser.reset();
+    this.environment.reset();
+    this.sceneManager.resetToMenu();
+    this.sceneManager.render();
+  }
+
   showHome() {
     this.screen = 'home';
     this.isRunning = false;
@@ -457,16 +475,8 @@ export class GameController {
     this.ui.updateSpeedVfx(0);
     this.ui.updateChaseVfx(0);
 
-    // Clean, quiet temple behind the menu
-    this.playerZ = 0;
-    this.runSpeed = 10.5;
-    this.targetLaneX = 0;
-    this.isJumping = false;
-    this.isSquatting = false;
-    this.obstacleManager.reset();
-    this.monsterManager.reset();
-    this.playerHands.resetPunches();
-    this.chaser.reset();
+    // Return the corridor and camera to the same pose shown on the title screen.
+    this.resetTempleBackdrop();
 
     this.refreshHomeStats();
     this.applySettings();
@@ -677,6 +687,10 @@ export class GameController {
     this.calib.armFor = 0;
     this.calib.holdRef = null;
     this.calib.tested = { jump: false, squat: false, step: false, punch: false };
+    this.calib.moveTestArmed = false;
+    this.calib.moveArmFor = 0;
+    this.calib.previousMotion = null;
+    this.calibrator.resetMotionState();
     // Auto-start is a mode, not a first-run bonus: every camera run ends with the
     // move set, and the run starts when it is complete.
     this.calibAutoStart = Boolean(this.cameraReady && this.settings.autoStart !== false);
@@ -869,6 +883,14 @@ export class GameController {
 
     if (!this.calibAutoStart || !this.calib.baselineLocked || !this.calibrator.hasGuardBaseline) return;
 
+    if (!this.calib.moveTestArmed) {
+      this.setStepState(3, 'active', 'WAIT');
+      this.setCalibrationHint(3, guard.ready
+        ? 'Hold your guard steady to arm move tracking.'
+        : 'Bring both hands back to chest height.');
+      return;
+    }
+
     const required = this.requiredMoves();
     const done = required.filter((m) => this.calib.tested[m]);
     const missing = required.filter((m) => !this.calib.tested[m]);
@@ -904,10 +926,37 @@ export class GameController {
   /** Called with classified motion while the wizard is open. */
   updateCalibrationFromMotion(motion) {
     if (this.screen !== 'calibration' || !motion) return;
-    if (motion.isJumping) this.markMoveTested('jump');
-    if (motion.isSquatting) this.markMoveTested('squat');
-    if (motion.laneChanged || motion.laneX !== 0) this.markMoveTested('step');
-    if (motion.punchTriggered) this.markMoveTested('punch');
+    if (!this.calib.baselineLocked || !this.calibrator.hasGuardBaseline) {
+      this.calib.moveArmFor = 0;
+      this.calib.moveTestArmed = false;
+      this.calib.previousMotion = null;
+      this.updateMoveSequence(this._lastGuard || { ready: false, reason: '' });
+      return;
+    }
+
+    const neutral = Boolean(
+      this._lastGuard?.ready && !motion.isJumping && !motion.isSquatting &&
+      motion.laneX === 0 && !motion.punchTriggered
+    );
+    if (!this.calib.moveTestArmed) {
+      this.calib.moveArmFor = neutral
+        ? this.calib.moveArmFor + (this._lastFrameDelta || 0.016) * 1000
+        : 0;
+      if (this.calib.moveArmFor >= 450) {
+        this.calib.moveTestArmed = true;
+        this.calib.previousMotion = { ...motion };
+      }
+      this.updateMoveSequence(this._lastGuard || { ready: false, reason: '' });
+      return;
+    }
+
+    const previous = this.calib.previousMotion || {};
+    if (motion.isJumping && !previous.isJumping) this.markMoveTested('jump');
+    if (motion.isSquatting && !previous.isSquatting) this.markMoveTested('squat');
+    if ((motion.laneChanged && !previous.laneChanged) ||
+        (motion.laneX !== 0 && previous.laneX === 0)) this.markMoveTested('step');
+    if (motion.punchTriggered && !previous.punchTriggered) this.markMoveTested('punch');
+    this.calib.previousMotion = { ...motion };
     // Rotate the highlight to whatever is still missing (stage 4 of the wizard).
     this.updateMoveSequence(this._lastGuard || { ready: true, reason: '' });
   }
@@ -925,6 +974,9 @@ export class GameController {
   syncCalibrationUI() {
     const required = this.requiredMoves();
     const count = required.filter((m) => this.calib.tested[m]).length;
+    required.forEach((move) => {
+      document.getElementById(`cal-test-${move}`)?.classList.toggle('done', Boolean(this.calib.tested[move]));
+    });
     const label = document.getElementById('cal-state-3');
     if (label) label.textContent = `${count} / ${required.length}`;
     this.setStepState(3, count === required.length ? 'ok' : 'active', `${count} / ${required.length}`);
@@ -1170,7 +1222,7 @@ export class GameController {
     const calibModal = document.getElementById('calibration-modal');
     if (calibModal && !calibModal.classList.contains('hidden')) {
       const calibCanvas = document.getElementById('calib-canvas');
-      if (calibCanvas) this.calibrator.drawSkeleton(calibCanvas, this._latestPose, true);
+      if (calibCanvas) this.calibrator.drawSkeleton(calibCanvas, this._latestPose, false);
     }
     if (this.isTutorialActive) {
       const tutCanvas = document.getElementById('tut-skeleton-canvas');
@@ -1710,6 +1762,10 @@ export class GameController {
       return;
     }
 
+    // Preserve the run result values while returning the 3D background itself
+    // to the title-screen corridor composition.
+    this.resetTempleBackdrop();
+
     this.ui.showWorkoutSummary({
       score: this.score,
       bestScore: this.bestScore,
@@ -1879,7 +1935,7 @@ export class GameController {
         const targetH = calibVideo.clientHeight || 300;
         if (calibCanvas.width !== targetW) calibCanvas.width = targetW;
         if (calibCanvas.height !== targetH) calibCanvas.height = targetH;
-        this.calibrator.drawSkeleton(calibCanvas, pose, true, this.getObjectFitView(calibVideo, targetW, targetH));
+        this.calibrator.drawSkeleton(calibCanvas, pose, false, this.getObjectFitView(calibVideo, targetW, targetH));
       }
 
       // Live skeleton + wizard validation for the calibration screen
@@ -1998,8 +2054,10 @@ export class GameController {
       // Workout Science Calorie & Heart Rate Formula
       // MET values: Average high intensity workout MET = 7.5
       // Calorie burn rate = (7.5 * 3.5 * 70kg / 200) / 60 = ~0.15 kcal/second
-      const intensity = 1.0 + (this.comboMultiplier * 0.25) + (this.runSpeed / 20);
-      this.caloriesBurned += (0.13 * intensity) * delta;
+      if (!this.keyboardOnly) {
+        const intensity = 1.0 + (this.comboMultiplier * 0.25) + (this.runSpeed / 20);
+        this.caloriesBurned += (0.13 * intensity) * delta;
+      }
       this.estimatedBpm = Math.min(175, 120 + this.comboMultiplier * 6 + (this.reps.jumps + this.reps.squats) * 0.5);
 
       // Update 3D Subsystems
