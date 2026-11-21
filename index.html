@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#07090e" />
+    <meta name="description" content="ReflexRun 3D — a camera-controlled endless runner. Jump, duck, dodge and punch to escape the beast." />
+    <title>ReflexRun 3D - The Real-Life Workout Game</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+    <script type="module" crossorigin src="/GAME-REVOLUTION/assets/index-CySIXk4o.js"></script>
+    <link rel="stylesheet" crossorigin href="/GAME-REVOLUTION/assets/index-qkxEORHl.css">
+  </head>
+  <body>
+    <!-- Main 3D Canvas Container -->
+    <div id="game-container"></div>
+
+    <!-- Screen VFX Overlays -->
+    <div id="vignette-damage" class="vfx-overlay"></div>
+    <div id="vignette-chase" class="vfx-overlay"></div>
+    <div id="vignette-speed" class="vfx-overlay"></div>
+    <div id="hit-flash" class="vfx-overlay"></div>
+    <div id="vignette-invulnerable" class="vfx-overlay"></div>
+    <div id="chaos-blackout" class="chaos-blackout" aria-hidden="true"></div>
+    <div id="chaos-slip" class="chaos-slip" aria-hidden="true"></div>
+
+    <!-- ============================================================
+         LIVE IN-GAME HUD
+         ============================================================ -->
+    <div id="hud" class="hud-layer hidden">
+      <div id="chaos-mode-badge" class="chaos-mode-badge hidden" aria-live="polite"><span>CHAOS MODE</span><b id="chaos-turbo-badge" class="hidden">TURBO</b></div>
+      <!-- Top Status Bar -->
+      <div class="hud-top-bar">
+        <div class="hud-panel health-panel">
+          <div class="panel-label">LIVES</div>
+          <div class="health-hearts" id="health-hearts">
+            <span class="heart active">❤️</span>
+            <span class="heart active">❤️</span>
+            <span class="heart active">❤️</span>
+          </div>
+          <div id="shield-indicator" class="shield-indicator hidden"><span>SHIELD</span><b id="shield-countdown">5.0s</b></div>
+        </div>
+
+        <div class="hud-panel distance-panel">
+          <div class="panel-label">DISTANCE</div>
+          <div class="panel-value" id="hud-distance">0 <span class="unit">M</span></div>
+          <div class="speed-indicator" id="hud-speed">24 KM/H</div>
+        </div>
+
+        <div class="hud-panel score-panel">
+          <div class="panel-label">SCORE</div>
+          <div class="panel-value score-text" id="hud-score">0</div>
+          <div class="best-indicator" id="hud-best">BEST 0</div>
+        </div>
+
+        <div class="hud-panel combo-panel">
+          <div class="panel-label">COMBO</div>
+          <div class="panel-value combo-text" id="hud-combo">x1</div>
+          <div class="combo-meter-bar">
+            <div class="combo-meter-fill" id="combo-fill" style="width: 0%;"></div>
+          </div>
+        </div>
+
+        <div class="hud-panel calories-panel">
+          <div class="panel-label">ENERGY BURNED</div>
+          <div class="panel-value calories-text" id="hud-calories">0 <span class="unit">KCAL</span></div>
+          <div class="bpm-indicator" id="hud-bpm">⚡ 135 BPM</div>
+        </div>
+      </div>
+
+      <!-- Rear-view mirror: the beast you are outrunning -->
+      <div class="rear-panel" id="rear-panel">
+        <div class="rear-head">
+          <span class="rear-live"></span>
+          <span class="rear-title">REAR VIEW</span>
+          <span class="rear-dist" id="chase-distance">14 m</span>
+        </div>
+        <div class="rear-mirror" id="rear-mirror"></div>
+        <div class="chase-track">
+          <div class="chase-danger-zone"></div>
+          <div class="chase-fill" id="chase-fill" style="width: 60%"></div>
+        </div>
+        <div class="chase-caption" id="chase-caption">BEAST DISTANCE</div>
+      </div>
+
+      <!-- Side cue rail: reactive instructions live off the play area -->
+      <aside class="cue-rail" aria-live="polite">
+        <div class="cue-card" id="action-prompt">
+          <span class="cue-icon" id="prompt-icon">↑</span>
+          <span class="cue-body">
+            <span class="cue-text" id="prompt-text">JUMP</span>
+            <span class="cue-subtext" id="prompt-subtext">HOP OVER SPIKES</span>
+          </span>
+        </div>
+      </aside>
+
+      <!-- Floating Feedback (PERFECT, CRUSHED) -->
+      <div class="floating-feedback" id="floating-feedback"></div>
+
+      <!-- Bottom Workout Reps HUD -->
+      <div class="hud-bottom-bar">
+        <div class="rep-chip" id="rep-jumps">
+          <span class="chip-icon">🦘</span>
+          <div class="chip-info">
+            <span class="chip-title">JUMPS</span>
+            <span class="chip-count" id="count-jumps">0</span>
+          </div>
+        </div>
+        <div class="rep-chip" id="rep-squats">
+          <span class="chip-icon">🔻</span>
+          <div class="chip-info">
+            <span class="chip-title">DUCKS</span>
+            <span class="chip-count" id="count-squats">0</span>
+          </div>
+        </div>
+        <div class="rep-chip" id="rep-punches">
+          <span class="chip-icon">🥊</span>
+          <div class="chip-info">
+            <span class="chip-title">PUNCHES</span>
+            <span class="chip-count" id="count-punches">0</span>
+          </div>
+        </div>
+        <div class="rep-chip" id="rep-steps">
+          <span class="chip-icon">↔️</span>
+          <div class="chip-info">
+            <span class="chip-title">STEPS</span>
+            <span class="chip-count" id="count-steps">0</span>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="kb-badge hidden" id="kb-badge">
+        <span class="kb-badge-key">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6.5 9.5h1M10 9.5h1M13.5 9.5h1M17 9.5h1M6.5 12.5h1M10 12.5h1M13.5 12.5h1M17 12.5h1M8 15.5h8"/></svg>
+        </span>
+        <span class="kb-badge-copy"><b>KEYBOARD MODE</b><small>Body tracker off</small></span>
+      </div>
+
+      <div class="hud-controls-group">
+        <button id="btn-audio" class="hud-btn" title="Toggle sound" aria-label="Toggle sound">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5v5h3l4.5 3.5v-12L7 9.5H4z"/><path d="M16 8.5a4.5 4.5 0 0 1 0 7"/><path d="M18.8 6a8 8 0 0 1 0 12"/></svg>
+        </button>
+        <button id="btn-pip-hud" class="hud-btn" title="Toggle body tracker" aria-label="Toggle body tracker">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6.5" width="13" height="11" rx="2.5"/><path d="M15.5 11.5 21 8.5v7l-5.5-3z"/></svg>
+        </button>
+        <button id="btn-pause" class="hud-btn" title="Pause (Esc)" aria-label="Pause">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><rect x="7" y="5.5" width="3.6" height="13" rx="1.2"/><rect x="13.4" y="5.5" width="3.6" height="13" rx="1.2"/></svg>
+        </button>
+      </div>
+
+      <div class="keyboard-hints">
+        <span><kbd>W</kbd> jump</span> • <span><kbd>S</kbd> duck</span> • <span><kbd>A</kbd>/<kbd>D</kbd> dodge</span> • <span><kbd>J</kbd>/<kbd>K</kbd> punch</span> • <span><kbd>Esc</kbd> pause</span>
+      </div>
+    </div>
+
+    <!-- Picture-in-Picture Webcam Tracker -->
+    <div id="webcam-pip" class="webcam-pip">
+      <div class="pip-header">
+        <span class="pip-indicator" id="pip-status-dot"></span>
+        <span class="pip-title">BODY TRACKER</span>
+        <div class="pip-header-btns">
+          <button id="btn-toggle-pip" class="pip-toggle-btn" title="Minimize / Expand">_</button>
+          <button id="btn-close-pip" class="pip-toggle-btn" title="Dismiss Camera Window">✕</button>
+        </div>
+      </div>
+      <div class="pip-body">
+        <video id="webcam-video" playsinline muted autoplay></video>
+        <canvas id="webcam-skeleton-canvas"></canvas>
+        <div class="pip-nocam" id="pip-nocam">
+          <div class="pip-nocam-icon">⌨️</div>
+          <div class="pip-nocam-title">KEYBOARD MODE</div>
+          <div class="pip-nocam-sub">W / S / A / D · J / K</div>
+        </div>
+        <div class="pip-overlay" id="pip-action-overlay">
+          <span id="pip-action-tag">READY</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================
+         HOME SCREEN
+         ============================================================ -->
+    <div id="home-screen" class="home-screen">
+      <div class="home-shade"></div>
+      <div class="home-embers" aria-hidden="true"></div>
+      <button type="button" id="home-audio" class="home-audio" aria-label="Mute audio" title="Mute audio" aria-pressed="false">♫ <span>ON</span></button>
+      <div class="home-inner">
+        <div class="home-top">
+          <div class="brand-badge">CAMERA MOTION RUNNER</div>
+          <h1 class="home-title">REFLEX<span class="accent-orange">RUN</span></h1>
+        <p class="home-tag">Outrun the curse. Your body is the controller — jump, duck, dodge, and strike to survive.</p>
+        </div>
+
+        <div class="home-stats">
+          <div class="home-stat">
+            <span class="hs-label">PERSONAL BEST</span>
+            <span class="hs-value" id="home-best">0</span>
+          </div>
+          <div class="home-stat">
+            <span class="hs-label">LAST RUN</span>
+            <span class="hs-value" id="home-last">—</span>
+          </div>
+          <button type="button" class="home-stat home-stat-action" id="home-cam-card" title="Switch control mode">
+            <span class="hs-label" id="home-mode-label">CONTROL MODE · TAP TO SWITCH</span>
+            <span class="hs-value cam" id="home-cam">CHECKING…</span>
+          </button>
+        </div>
+
+        <div class="home-stance">
+          <span class="stance-icon" aria-hidden="true">✦</span>
+          <span>
+            <strong>Guard stance:</strong> stand centred facing the camera, body straight,
+            hands up near your chest. Every run starts by checking exactly that.
+          </span>
+        </div>
+
+        <div class="home-actions">
+          <button id="btn-play" class="btn btn-primary btn-hero">
+            <span class="hero-play">▶</span> <span class="btn-hero-label">START RUN</span>
+          </button>
+          <div class="home-secondary">
+            <button id="btn-how-to" class="btn btn-secondary">HOW TO PLAY</button>
+            <button id="btn-settings" class="btn btn-secondary">SETTINGS</button>
+          </div>
+        </div>
+        <button type="button" id="mode-toggle" class="mode-toggle" aria-pressed="false"><span>CLASSIC</span><i></i><span>CHAOS MODE</span></button>
+
+        <div class="home-foot">
+          <span><kbd>W</kbd> <kbd>Space</kbd> jump</span>
+          <span><kbd>S</kbd> duck</span>
+          <span><kbd>A</kbd> <kbd>D</kbd> dodge</span>
+          <span><kbd>J</kbd> <kbd>K</kbd> punch</span>
+          <span><kbd>Esc</kbd> pause</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================
+         CALIBRATION WIZARD
+         ============================================================ -->
+    <div id="calibration-modal" class="modal-backdrop hidden">
+      <div class="modal-card calibration-card">
+        <div class="modal-header compact">
+          <div class="brand-badge">BODY TRACKING SETUP</div>
+          <h2 class="modal-title smaller">CALIBRATE <span class="accent-orange">YOUR MOVES</span></h2>
+          <p class="modal-subtitle">Three quick checks — then every jump, duck, dodge and punch lands exactly when you do it.</p>
+        </div>
+
+        <div class="calibration-content">
+          <div class="calibration-preview-box">
+            <video id="calib-video" playsinline muted autoplay></video>
+            <canvas id="calib-canvas"></canvas>
+
+            <div class="silhouette-guide" id="silhouette-guide">
+              <div class="guide-head"></div>
+              <div class="guide-torso">
+                <div class="guide-hands"><span></span><span></span></div>
+              </div>
+              <div class="guide-rest-note">HANDS UP · CHEST HIGH</div>
+              <div class="guide-lane-left">LANE L</div>
+              <div class="guide-lane-center">CENTER</div>
+              <div class="guide-lane-right">LANE R</div>
+            </div>
+
+            <div class="calib-status-banner" id="calib-status-text">Requesting camera…</div>
+            <div class="calib-countdown hidden" id="calib-countdown">3</div>
+          </div>
+
+          <div class="calibration-sidebar">
+            <div class="cal-step active" id="cal-step-1">
+              <div class="cal-step-head">
+                <span class="cal-num">1</span>
+                <div class="cal-step-copy">
+                  <h3>Stand in frame</h3>
+                  <p>2–3 m back, head and torso visible, whole body in the box.</p>
+                </div>
+                <span class="cal-state" id="cal-state-1">WAIT</span>
+              </div>
+              <div class="cal-hint" id="cal-hint-1">Waiting for camera permission…</div>
+            </div>
+
+            <div class="cal-step active" id="cal-step-2">
+              <div class="cal-step-head">
+                <span class="cal-num">2</span>
+                <div class="cal-step-copy">
+                  <h3>Hold the guard stance</h3>
+                  <p><strong>Hands up near your chest, body straight.</strong> This resting pose is what everything is measured from.</p>
+                </div>
+                <span class="cal-state" id="cal-state-2">WAIT</span>
+              </div>
+              <div class="cal-progress"><div class="cal-progress-fill" id="cal-progress"></div></div>
+              <div class="cal-hint" id="cal-hint-2">Hands at your chest, body straight.</div>
+            </div>
+
+            <div class="cal-step" id="cal-step-3">
+              <div class="cal-step-head">
+                <span class="cal-num">3</span>
+                <div class="cal-step-copy">
+                  <h3>Do your four moves</h3>
+                  <p>Jump, duck, dodge, punch — any order. <strong>The run starts on its own.</strong></p>
+                </div>
+                <span class="cal-state" id="cal-state-3">0 / 4</span>
+              </div>
+              <div class="cal-tests">
+                <div class="cal-test" id="cal-test-jump"><span class="cal-test-icon">↑</span><span>JUMP</span></div>
+                <div class="cal-test" id="cal-test-squat"><span class="cal-test-icon">↓</span><span>DUCK</span></div>
+                <div class="cal-test" id="cal-test-step"><span class="cal-test-icon">↔</span><span>DODGE</span></div>
+                <div class="cal-test" id="cal-test-punch"><span class="cal-test-icon">✊</span><span>PUNCH</span></div>
+              </div>
+              <div class="cal-hint" id="cal-hint-3">Next: JUMP — any order, one rep each.</div>
+            </div>
+
+            <div class="calib-actions">
+              <button id="btn-cal-retry" class="btn btn-secondary hidden">🎥 ENABLE CAMERA</button>
+              <button id="btn-cal-start" class="btn btn-primary glow-btn" disabled>START RUN ⚡</button>
+              <button id="btn-cal-keyboard" class="btn btn-ghost">KEYBOARD MODE →</button>
+              <button id="btn-cal-cancel" class="btn btn-ghost">← BACK</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================
+         SETTINGS
+         ============================================================ -->
+    <div id="settings-modal" class="modal-backdrop hidden">
+      <div class="modal-card settings-card">
+        <div class="modal-header compact">
+          <div class="brand-badge">TUNING</div>
+          <h2 class="modal-title smaller">SETTINGS</h2>
+          <p class="modal-subtitle">How hard you have to move before the game registers it.</p>
+        </div>
+
+        <div class="tuning-grid">
+          <label>
+            <div class="slider-header">
+              <span><b class="tune-glyph">↑</b> Jump height</span>
+              <strong class="slider-badge" id="val-jump">14%</strong>
+            </div>
+            <input type="range" id="slider-jump" min="2" max="100" value="14" />
+            <small>Lower = a small hop counts • Higher = you must leap high</small>
+          </label>
+          <label>
+            <div class="slider-header">
+              <span><b class="tune-glyph">↓</b> Duck depth</span>
+              <strong class="slider-badge" id="val-squat">16%</strong>
+            </div>
+            <input type="range" id="slider-squat" min="3" max="100" value="16" />
+            <small>Lower = a slight crouch counts • Higher = deep squat needed</small>
+          </label>
+          <label>
+            <div class="slider-header">
+              <span><b class="tune-glyph">↔</b> Dodge width</span>
+              <strong class="slider-badge" id="val-step">12%</strong>
+            </div>
+            <input type="range" id="slider-step" min="2" max="100" value="12" />
+            <small>Lower = a small lean counts • Higher = step far to the side</small>
+          </label>
+          <label>
+            <div class="slider-header">
+              <span><b class="tune-glyph">✊</b> Punch reach</span>
+              <strong class="slider-badge" id="val-punch">18%</strong>
+            </div>
+            <input type="range" id="slider-punch" min="4" max="100" value="18" />
+            <small>Lower = a quick jab counts • Higher = full arm extension</small>
+          </label>
+        </div>
+
+        <div class="tuning-footer">
+          <label class="toggle-label">
+            <input type="checkbox" id="toggle-invert-x" checked />
+            <span>Mirror camera steering</span>
+          </label>
+          <label class="toggle-label" title="Stops a side-step from registering as a punch">
+            <input type="checkbox" id="toggle-step-lock" checked />
+            <span>Ignore punches while dodging</span>
+          </label>
+          <label class="toggle-label" title="Only punches when your fingers are closed">
+            <input type="checkbox" id="toggle-require-fist" />
+            <span>Require a clenched fist</span>
+          </label>
+          <label class="toggle-label">
+            <input type="checkbox" id="toggle-rear-mirror" checked />
+            <span>Rear-view mirror</span>
+          </label>
+          <label class="toggle-label" title="Spoken cues for run start, catch and finish">
+            <input type="checkbox" id="toggle-voice" />
+            <span>Spoken lines</span>
+          </label>
+          <label class="toggle-label" title="Start the run as soon as your four warm-up moves are detected">
+            <input type="checkbox" id="toggle-autostart" checked />
+            <span>Auto-start with moves</span>
+          </label>
+          <label class="toggle-label wide" title="Adaptive stops cueing a move once you clear it reliably">
+            <span>Action cues</span>
+            <select id="select-prompts" class="mini-select">
+              <option value="adaptive">Adaptive</option>
+              <option value="always">Always</option>
+              <option value="off">Off</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="settings-actions">
+          <button type="button" id="btn-reset-sensitivity" class="btn btn-ghost">RESET DEFAULTS</button>
+          <button type="button" id="btn-settings-recal" class="btn btn-secondary">RECALIBRATE</button>
+          <button type="button" id="btn-close-settings" class="btn btn-primary">← BACK TO MENU</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================
+         PAUSE
+         ============================================================ -->
+    <div id="pause-modal" class="modal-backdrop hidden">
+      <div class="modal-card pause-card">
+        <h2>PAUSED</h2>
+        <p>The beast is waiting. Catch your breath.</p>
+        <div class="pause-actions">
+          <button id="btn-resume" class="btn btn-primary glow-btn">RESUME RUN</button>
+          <button id="btn-pause-camera" class="btn btn-secondary hidden">USE BODY TRACKING</button>
+          <button id="btn-recalibrate" class="btn btn-secondary">CALIBRATE (ENDS RUN)</button>
+          <button id="btn-pause-home" class="btn btn-ghost">QUIT TO HOME</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================
+         INTERACTIVE TUTORIAL
+         ============================================================ -->
+    <div id="tutorial-modal" class="modal-backdrop hidden">
+      <div class="modal-card tutorial-card">
+        <div class="tutorial-progress-bar">
+          <div class="tutorial-progress-fill" id="tutorial-progress-fill" style="width: 0%"></div>
+        </div>
+
+        <div class="tutorial-header">
+          <span class="tutorial-step-badge" id="tut-step-badge">STEP 1 / 6</span>
+          <button id="btn-skip-tutorial" class="btn-skip-tut">← BACK TO MENU</button>
+        </div>
+
+        <div class="tutorial-layout">
+          <div class="tutorial-camera-panel">
+            <div class="tut-cam-header">
+              <div class="tut-cam-live">
+                <span class="live-dot"></span>
+                <span class="live-text">CAMERA TRACKER</span>
+              </div>
+              <span class="tut-cam-action-pill" id="tut-cam-action-pill">NEUTRAL / READY</span>
+            </div>
+            <div class="tut-cam-viewport" id="tut-cam-viewport">
+              <video id="tut-video" playsinline muted autoplay></video>
+              <canvas id="tut-skeleton-canvas"></canvas>
+              <div class="tut-nocam">
+                <div class="tut-nocam-icon">⌨️</div>
+                <div class="tut-nocam-title">KEYBOARD MODE</div>
+                <div class="tut-nocam-sub">Practice with W / S / A / D · J / K</div>
+              </div>
+              <div class="tut-lane-indicators">
+                <span class="tut-lane-mark" id="tut-mark-left">LANE L</span>
+                <span class="tut-lane-mark active" id="tut-mark-center">CENTER</span>
+                <span class="tut-lane-mark" id="tut-mark-right">LANE R</span>
+              </div>
+            </div>
+            <div class="tut-motion-meters">
+              <div class="tut-meter-row">
+                <span class="tut-meter-label">VERTICAL</span>
+                <div class="tut-meter-track">
+                  <div class="tut-zone-tag jump">JUMP</div>
+                  <div class="tut-zone-tag neutral">NEUTRAL</div>
+                  <div class="tut-zone-tag squat">SQUAT</div>
+                  <div class="tut-needle" id="tut-height-pin"></div>
+                </div>
+              </div>
+              <div class="tut-meter-row">
+                <span class="tut-meter-label">LATERAL</span>
+                <div class="tut-meter-track">
+                  <div class="tut-needle-lat" id="tut-lat-pin"></div>
+                </div>
+              </div>
+              <div class="tut-meter-row">
+                <span class="tut-meter-label">PUNCH</span>
+                <div class="tut-meter-track">
+                  <div class="tut-meter-punch-fill" id="tut-punch-fill"></div>
+                  <div class="tut-punch-thresh-mark">STRIKE</div>
+                </div>
+              </div>
+            </div>
+            <div class="tut-cam-controls">
+              <button id="btn-tut-recalibrate" class="btn-tut-recalib" type="button">
+                <span>🎯 RE-CENTER BASELINE</span>
+              </button>
+              <span class="tut-cam-hint" id="tut-cam-status-hint">Stand 2–3 m back with head &amp; torso visible</span>
+            </div>
+          </div>
+
+          <div class="tutorial-body" id="tutorial-body">
+            <div class="tut-step active" id="tut-step-0">
+              <div class="tut-icon-big">🏃‍♂️</div>
+              <h2 class="tut-title">Welcome to <span class="accent-orange">ReflexRun 3D</span></h2>
+              <p class="tut-desc">You're running through an ancient temple with a beast on your heels. Clear obstacles to keep it behind you — the moment you stop moving, it closes in.</p>
+              <div class="tut-stance-card">
+                <div class="tut-stance-title">YOUR REST POSITION</div>
+                <p><strong>Face the camera, stand centred, and hold your hands near your chest.</strong> Return to this stance between moves. Before the run, you will practise each move once.</p>
+              </div>
+              <div class="tut-moves-preview">
+                <div class="tut-move-chip"><span>🦘</span> JUMP over spikes</div>
+                <div class="tut-move-chip"><span>🔻</span> DUCK under blades</div>
+                <div class="tut-move-chip"><span>↔️</span> DODGE stone pillars</div>
+                <div class="tut-move-chip"><span>🥊</span> PUNCH golems</div>
+              </div>
+              <p class="tut-hint">Every clean dodge pushes the beast back. Every hit lets it lunge. Watch the rear-view mirror.</p>
+            </div>
+
+            <div class="tut-step" id="tut-step-1">
+              <div class="tut-icon-big tut-icon-animated">🦘</div>
+              <h2 class="tut-title">Learn to <span class="accent-orange">JUMP</span></h2>
+              <p class="tut-desc">Spiked hurdles block the whole track — leap over them.</p>
+              <div class="tut-how-to">
+                <div class="tut-method">
+                  <div class="tut-method-label">WITH YOUR BODY</div>
+                  <div class="tut-method-detail">Jump! Your shoulders rise above the baseline.</div>
+                </div>
+                <div class="tut-method-divider">OR</div>
+                <div class="tut-method">
+                  <div class="tut-method-label">KEYBOARD</div>
+                  <div class="tut-method-detail">Press <kbd>W</kbd> or <kbd>Space</kbd> or <kbd>↑</kbd></div>
+                </div>
+              </div>
+              <div class="tut-practice-zone">
+                <div class="tut-practice-label">TRY IT NOW</div>
+                <div class="tut-detect-ring" id="tut-detect-jump">
+                  <div class="tut-detect-icon">🦘</div>
+                  <div class="tut-detect-status" id="tut-status-jump">Waiting for JUMP…</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="tut-step" id="tut-step-2">
+              <div class="tut-icon-big tut-icon-animated">🔻</div>
+              <h2 class="tut-title">Learn to <span class="accent-orange">DUCK</span></h2>
+              <p class="tut-desc">Swinging blades sweep the top half of the track — drop under them.</p>
+              <div class="tut-how-to">
+                <div class="tut-method">
+                  <div class="tut-method-label">WITH YOUR BODY</div>
+                  <div class="tut-method-detail">Crouch or squat low until your shoulders drop.</div>
+                </div>
+                <div class="tut-method-divider">OR</div>
+                <div class="tut-method">
+                  <div class="tut-method-label">KEYBOARD</div>
+                  <div class="tut-method-detail">Press <kbd>S</kbd> or <kbd>↓</kbd></div>
+                </div>
+              </div>
+              <div class="tut-practice-zone">
+                <div class="tut-practice-label">TRY IT NOW</div>
+                <div class="tut-detect-ring" id="tut-detect-squat">
+                  <div class="tut-detect-icon">🔻</div>
+                  <div class="tut-detect-status" id="tut-status-squat">Waiting for SQUAT…</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="tut-step" id="tut-step-3">
+              <div class="tut-icon-big tut-icon-animated">↔️</div>
+              <h2 class="tut-title">Learn to <span class="accent-orange">DODGE</span></h2>
+              <p class="tut-desc">Stone pillars block two lanes. Slide into the open one.</p>
+              <div class="tut-how-to">
+                <div class="tut-method">
+                  <div class="tut-method-label">WITH YOUR BODY</div>
+                  <div class="tut-method-detail">Step sideways — your body shifts out of the centre.</div>
+                </div>
+                <div class="tut-method-divider">OR</div>
+                <div class="tut-method">
+                  <div class="tut-method-label">KEYBOARD</div>
+                  <div class="tut-method-detail">Press <kbd>A</kbd> (left) or <kbd>D</kbd> (right)</div>
+                </div>
+              </div>
+              <div class="tut-practice-zone">
+                <div class="tut-practice-label">TRY IT NOW</div>
+                <div class="tut-detect-ring" id="tut-detect-step">
+                  <div class="tut-detect-icon">↔️</div>
+                  <div class="tut-detect-status" id="tut-status-step">Waiting for SIDE-STEP…</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="tut-step" id="tut-step-4">
+              <div class="tut-icon-big tut-icon-animated">🥊</div>
+              <h2 class="tut-title">Learn to <span class="accent-orange">PUNCH</span></h2>
+              <p class="tut-desc">A magma golem charges down your lane — shatter it with a strike.</p>
+              <div class="tut-how-to">
+                <div class="tut-method">
+                  <div class="tut-method-label">WITH YOUR BODY</div>
+                  <div class="tut-method-detail">Make a fist and thrust forward toward the camera.</div>
+                </div>
+                <div class="tut-method-divider">OR</div>
+                <div class="tut-method">
+                  <div class="tut-method-label">KEYBOARD</div>
+                  <div class="tut-method-detail">Press <kbd>J</kbd> (left jab) or <kbd>K</kbd> (right cross)</div>
+                </div>
+              </div>
+              <div class="tut-practice-zone">
+                <div class="tut-practice-label">TRY IT NOW</div>
+                <div class="tut-detect-ring" id="tut-detect-punch">
+                  <div class="tut-detect-icon">🥊</div>
+                  <div class="tut-detect-status" id="tut-status-punch">Waiting for PUNCH…</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="tut-step" id="tut-step-5">
+              <div class="tut-icon-big">⚡</div>
+              <h2 class="tut-title">You're <span class="accent-orange">Ready</span></h2>
+              <p class="tut-desc">Clear obstacles to push the beast back. Get hit and it lunges. Let it reach you and the run ends.</p>
+              <div class="tut-tips-grid">
+                <div class="tut-tip"><strong>❤️ Stamina:</strong> 3 hits and you're caught.</div>
+                <div class="tut-tip"><strong>🏃 Combo:</strong> chain clean dodges for up to x8 score.</div>
+                <div class="tut-tip"><strong>🪞 Mirror:</strong> the beast is always behind you — keep an eye on it.</div>
+                <div class="tut-tip"><strong>⏸️ Pause:</strong> <kbd>Esc</kbd> anytime.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="tutorial-nav">
+          <button id="btn-tut-prev" class="btn btn-secondary tut-nav-btn" disabled>← BACK</button>
+          <button id="btn-tut-next" class="btn btn-primary glow-btn tut-nav-btn">NEXT →</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================
+         RUN SUMMARY
+         ============================================================ -->
+    <div id="summary-modal" class="modal-backdrop hidden">
+      <div class="home-embers summary-embers" aria-hidden="true"></div>
+      <div class="modal-card summary-card">
+        <div class="summary-kicker">TEMPLE ESCAPE SUMMARY</div>
+        <div class="summary-badge hidden" id="summary-grade">NEW PERSONAL BEST!</div>
+        <h2 class="summary-title" id="summary-title">RUN OVER</h2>
+        <p class="summary-subtitle" id="summary-message">Good workout! Keep pushing your reflexes.</p>
+
+        <div class="summary-score-row">
+          <div class="summary-score-block">
+            <span class="score-caption">FINAL SCORE</span>
+            <span class="score-number" id="sum-score">0</span>
+          </div>
+          <div class="summary-score-block best">
+            <span class="score-caption">PERSONAL BEST</span>
+            <span class="score-number" id="sum-best">0</span>
+          </div>
+        </div>
+
+        <div class="summary-grid">
+          <div class="summary-stat-box">
+            <span class="stat-icon">🔥</span>
+            <span class="stat-value" id="sum-calories">0</span>
+            <span class="stat-label">CALORIES</span>
+          </div>
+          <div class="summary-stat-box">
+            <span class="stat-icon">🏃</span>
+            <span class="stat-value" id="sum-distance">0m</span>
+            <span class="stat-label">DISTANCE</span>
+          </div>
+          <div class="summary-stat-box">
+            <span class="stat-icon">⚡</span>
+            <span class="stat-value" id="sum-max-combo">x0</span>
+            <span class="stat-label">MAX COMBO</span>
+          </div>
+          <div class="summary-stat-box">
+            <span class="stat-icon">⏱️</span>
+            <span class="stat-value" id="sum-time">00:00</span>
+            <span class="stat-label">TIME</span>
+          </div>
+        </div>
+
+        <div class="summary-breakdown">
+          <div class="breakdown-item">
+            <span>↑ Jumps:</span>
+            <strong id="sum-jumps">0</strong>
+          </div>
+          <div class="breakdown-item">
+            <span>↓ Duck / squats:</span>
+            <strong id="sum-squats">0</strong>
+          </div>
+          <div class="breakdown-item">
+            <span>✊ Punches:</span>
+            <strong id="sum-punches">0</strong>
+          </div>
+          <div class="breakdown-item">
+            <span>↔ Dodges:</span>
+            <strong id="sum-steps">0</strong>
+          </div>
+        </div>
+
+        <div class="summary-actions">
+          <button id="btn-restart" class="btn btn-primary glow-btn">PLAY AGAIN</button>
+          <button id="btn-summary-home" class="btn btn-secondary">← BACK TO MENU</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Run countdown -->
+    <div id="run-countdown" class="run-countdown hidden">
+      <div class="countdown-num" id="countdown-num">3</div>
+      <div class="countdown-sub" id="countdown-sub">GET READY</div>
+    </div>
+
+    <!-- Caught flash -->
+    <div id="caught-overlay" class="caught-overlay hidden">
+      <div class="caught-text">CAUGHT</div>
+    </div>
+
+    <!-- Application Entry Point -->
+  </body>
+</html>
