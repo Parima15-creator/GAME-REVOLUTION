@@ -99,6 +99,13 @@ body, html {
   background: rgba(255, 255, 255, 0.85);
   transition: opacity 0.08s ease-out;
 }
+#vignette-invulnerable { opacity: 0; background: radial-gradient(circle, transparent 48%, rgba(70,225,255,.28) 100%); }
+#vignette-invulnerable.active { opacity: 1; animation: invulnerabilityPulse .32s steps(2, end) infinite; }
+@keyframes invulnerabilityPulse { 50% { opacity: .28; } }
+.shield-indicator { display: flex; align-items: center; justify-content: center; gap: 7px; margin-top: 7px; padding: 4px 8px; border: 1px solid rgba(67,229,255,.4); border-radius: 999px; color: #7af2ff; background: rgba(0,180,220,.1); font: 700 9px var(--font-mono); letter-spacing: .6px; }
+.shield-indicator b { color: #fff; font-size: 10px; }
+.shield-indicator.urgent { border-color: rgba(255,190,83,.8); color: #ffd26b; animation: shieldUrgent .3s ease-in-out infinite alternate; }
+@keyframes shieldUrgent { to { box-shadow: 0 0 14px rgba(255,190,83,.6); } }
 
 /* ==========================================================================
    HEADS-UP DISPLAY (HUD)
@@ -2154,6 +2161,118 @@ button:hover, .btn:hover, .btn-ghost:hover { filter: brightness(1.15); box-shado
 .summary-title { font-family: var(--font-display); }
 .home-title, .modal-title, .summary-title, .panel-value, .score-text, .score-number, .summary-stat-box .stat-value, .hs-value, .countdown-num { font-family: var(--font-display); }
 
+/* Spacious calibration arena: let the camera and each movement check read as
+   separate parts of the experience instead of squeezing them into a dialog. */
+#calibration-modal {
+  padding: clamp(16px, 3vw, 42px);
+  background:
+    radial-gradient(ellipse at 50% 42%, rgba(255, 102, 35, .09), transparent 56%),
+    radial-gradient(circle, rgba(10, 13, 20, .76), rgba(3, 5, 9, .94));
+}
+#calibration-modal .calibration-card {
+  width: min(100%, 1580px);
+  max-width: 1580px;
+  max-height: 94vh;
+  overflow-y: auto;
+  padding: clamp(22px, 2.3vw, 38px);
+  border-color: rgba(255,255,255,.14);
+  background: linear-gradient(145deg, rgba(19,23,32,.98), rgba(10,13,20,.98));
+  box-shadow: 0 30px 100px rgba(0,0,0,.7), 0 0 70px rgba(255,87,34,.12);
+}
+#calibration-modal .modal-header.compact { margin-bottom: clamp(18px, 2.5vh, 28px); }
+#calibration-modal .brand-badge { margin-bottom: 12px; }
+#calibration-modal .modal-title { font-size: clamp(30px, 3.5vw, 48px); letter-spacing: 2.5px; }
+#calibration-modal .modal-subtitle { display: block; margin: 10px auto 0; max-width: 720px; font-size: 15px; line-height: 1.55; }
+#calibration-modal .calibration-content {
+  grid-template-columns: minmax(0, 1.08fr) minmax(440px, .92fr);
+  gap: clamp(22px, 2.2vw, 36px);
+  align-items: stretch;
+}
+#calibration-modal .calibration-preview-box {
+  min-height: 0;
+  height: clamp(440px, 65vh, 740px);
+  border-radius: 20px;
+  border-color: rgba(255,255,255,.16);
+  box-shadow: inset 0 0 60px rgba(0,0,0,.34), 0 12px 38px rgba(0,0,0,.26);
+}
+#calibration-modal .calibration-preview-box::before {
+  content: ''; position: absolute; inset: 0; z-index: 2; pointer-events: none;
+  background: radial-gradient(ellipse at 50% 45%, transparent 42%, rgba(255,116,47,.08) 100%);
+  animation: calibrationBreath 4s ease-in-out infinite;
+}
+@keyframes calibrationBreath { 0%,100% { opacity: .45; } 50% { opacity: 1; } }
+#calibration-modal .silhouette-guide { padding-top: clamp(44px, 7vh, 80px); }
+#calibration-modal .guide-head { width: clamp(76px, 6vw, 104px); height: clamp(90px, 10vh, 126px); }
+#calibration-modal .guide-torso { width: clamp(150px, 11vw, 210px); height: clamp(190px, 24vh, 280px); border-radius: 28px; }
+#calibration-modal .guide-rest-note { margin-top: 14px; font-size: 14px; letter-spacing: 1.5px; }
+#calibration-modal .calib-status-banner {
+  z-index: 5; top: 18px; left: 50%; transform: translateX(-50%); width: max-content;
+  max-width: calc(100% - 48px); padding: 11px 18px; border-radius: 14px;
+  white-space: normal; line-height: 1.4; font-size: 12px;
+  box-shadow: 0 8px 30px rgba(0,0,0,.35);
+}
+#calibration-modal .calibration-sidebar { justify-content: flex-start; gap: 14px; min-width: 0; }
+#calibration-modal .cal-step {
+  padding: 16px 18px; border-radius: 16px;
+  background: linear-gradient(125deg, rgba(255,255,255,.045), rgba(255,255,255,.018));
+  transition: border-color .25s ease, background .25s ease, transform .25s ease, box-shadow .25s ease;
+}
+#calibration-modal .cal-step.active {
+  transform: none;
+  background: linear-gradient(120deg, rgba(255,139,57,.13), rgba(255,255,255,.025));
+  box-shadow: inset 3px 0 #ff8a3d, 0 8px 24px rgba(0,0,0,.18), 0 0 24px rgba(255,138,61,.06);
+}
+#calibration-modal .cal-step.done {
+  background: linear-gradient(120deg, rgba(0,230,118,.10), rgba(255,255,255,.018));
+}
+#calibration-modal .cal-step-head { gap: 14px; }
+#calibration-modal .cal-num { width: 38px; height: 38px; font-size: 18px; }
+#calibration-modal .cal-step-copy h3 { font: 700 15px var(--font-display); letter-spacing: .7px; }
+#calibration-modal .cal-step-copy p { display: block; margin-top: 5px; font-size: 12px; line-height: 1.5; color: #aeb6c5; }
+#calibration-modal .cal-state { flex-shrink: 0; }
+#calibration-modal .cal-hint { margin-top: 10px; min-height: 16px; white-space: normal; font-size: 11px; line-height: 1.45; }
+#calibration-modal .cal-progress { margin-top: 14px; }
+#calibration-modal .cal-tests { gap: 9px; margin-top: 15px; }
+#calibration-modal .cal-test { min-height: 82px; border-radius: 13px; gap: 8px; font-size: 11px; }
+#calibration-modal .cal-test-icon { font-size: 25px; }
+#calibration-modal .calib-actions {
+  position: relative; bottom: auto; z-index: 1;
+  margin-top: 2px; padding: 8px 0 0; grid-template-columns: 1fr 1fr; gap: 10px;
+  background: none;
+}
+#calibration-modal .calib-actions #btn-cal-retry { grid-column: 1; min-height: 52px; font-size: 11px; }
+#calibration-modal .calib-actions #btn-cal-start { grid-column: 2; min-height: 52px; font-size: 12px; }
+#calibration-modal .calib-actions #btn-cal-retry.hidden + #btn-cal-start { grid-column: 1 / -1; }
+#calibration-modal .calib-actions #btn-cal-keyboard,
+#calibration-modal .calib-actions #btn-cal-cancel { min-height: 48px; font-size: 11px; }
+#calibration-modal .calib-actions .btn { min-height: 52px; padding: 13px 16px; }
+#calibration-modal .guide-lane-left,
+#calibration-modal .guide-lane-center,
+#calibration-modal .guide-lane-right { bottom: 38px; font-size: 12px; }
+@media (prefers-reduced-motion: reduce) {
+  #calibration-modal .calibration-preview-box::before { animation: none; }
+}
+@media (max-width: 1000px) and (min-width: 701px) {
+  #calibration-modal .calibration-content { grid-template-columns: minmax(0, 1fr) minmax(350px, .9fr); gap: 16px; }
+  #calibration-modal .calibration-preview-box { height: 62vh; }
+  #calibration-modal .cal-step { padding: 12px; }
+  #calibration-modal .cal-tests { grid-template-columns: repeat(2, minmax(0,1fr)); }
+}
+@media (max-width: 700px) {
+  #calibration-modal { align-items: flex-start; overflow-y: auto; padding: 10px; }
+  #calibration-modal .calibration-card { max-height: none; overflow: visible; padding: 18px 14px; }
+  #calibration-modal .modal-header.compact { margin-bottom: 14px; }
+  #calibration-modal .modal-subtitle { font-size: 12px; }
+  #calibration-modal .calibration-content { grid-template-columns: 1fr; gap: 14px; }
+  #calibration-modal .calibration-preview-box { height: min(47vh, 360px); min-height: 250px; }
+  #calibration-modal .calibration-sidebar { gap: 10px; }
+  #calibration-modal .cal-step { padding: 12px; }
+  #calibration-modal .cal-step-copy p, #calibration-modal .cal-hint { display: block; }
+  #calibration-modal .cal-tests { grid-template-columns: repeat(4, minmax(0,1fr)); }
+  #calibration-modal .cal-test { min-height: 62px; }
+  #calibration-modal .calib-actions { margin-top: 4px; }
+}
+
 /* Keep the same temple framing and embers visible behind the finish HUD. */
 #summary-modal.modal-backdrop { background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; }
 #summary-modal::before {
@@ -2219,6 +2338,98 @@ button:hover, .btn:hover, .btn-ghost:hover { filter: brightness(1.12); box-shado
   .home-stats { gap: 8px; }
   .home-stat { min-height: 72px; padding: 10px 6px; }
 }
+
+/* Give tutorial copy enough room to scan comfortably. */
+.tutorial-card {
+  width: min(1200px, calc(100vw - 40px));
+  max-width: 1200px;
+  max-height: 92vh;
+  overflow-y: auto;
+}
+
+.tutorial-layout {
+  grid-template-columns: minmax(330px, 0.78fr) minmax(0, 1.22fr);
+  gap: 32px;
+  padding: 24px 32px;
+}
+
+.tutorial-body {
+  min-height: 0;
+  padding: 8px 4px;
+}
+
+#tut-step-0 {
+  align-items: stretch;
+  text-align: left;
+}
+
+#tut-step-0 .tut-icon-big {
+  text-align: center;
+  margin-bottom: 12px;
+}
+
+#tut-step-0 .tut-title {
+  font-size: clamp(30px, 2vw, 38px);
+  line-height: 1.2;
+  letter-spacing: 1px;
+  margin-bottom: 12px;
+}
+
+#tut-step-0 .tut-desc {
+  max-width: 58ch;
+  font-size: clamp(17px, 1.05vw, 20px);
+  line-height: 1.65;
+  margin-bottom: 16px;
+}
+
+#tut-step-0 .tut-stance-card {
+  margin-top: 0;
+  padding: 18px 20px;
+}
+
+#tut-step-0 .tut-stance-title {
+  font-size: 14px;
+  margin-bottom: 9px;
+}
+
+#tut-step-0 .tut-stance-card p {
+  font-size: 17px;
+  line-height: 1.65;
+}
+
+#tut-step-0 .tut-moves-preview {
+  max-width: none;
+  gap: 12px;
+  margin: 16px 0 8px;
+}
+
+#tut-step-0 .tut-move-chip {
+  min-height: 64px;
+  padding: 14px 16px;
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+#tut-step-0 .tut-hint {
+  margin-top: 12px;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+@media (max-width: 900px) {
+  .tutorial-layout {
+    grid-template-columns: 1fr;
+    gap: 20px;
+    padding: 16px 20px;
+  }
+
+  .tutorial-camera-panel {
+    max-width: 480px;
+    width: 100%;
+    margin: 0 auto;
+  }
+}
+
 @media (max-height: 700px) and (min-width: 701px) {
   .calibration-card { padding: 10px 14px; }
   .calibration-card .modal-header.compact { margin-bottom: 4px; }
@@ -2306,6 +2517,29 @@ button:hover, .btn:hover, .btn-ghost:hover { filter: brightness(1.12); box-shado
 .home-screen.hidden {
   display: none !important;
 }
+
+.mode-toggle {
+  display: inline-flex; align-items: center; gap: 10px; padding: 8px 13px;
+  color: var(--text-secondary); font: 700 10px var(--font-display); letter-spacing: 1px;
+  background: rgba(15,20,30,.62); border: 1px solid var(--border-subtle); border-radius: 999px;
+  backdrop-filter: blur(10px); cursor: pointer; transition: .2s ease;
+}
+.mode-toggle i { width: 30px; height: 16px; border-radius: 99px; background: rgba(255,255,255,.16); position: relative; }
+.mode-toggle i::after { content: ''; position: absolute; width: 12px; height: 12px; top: 2px; left: 2px; border-radius: 50%; background: #c2c6cf; transition: .2s ease; }
+.mode-toggle.active { border-color: rgba(255,138,61,.65); color: #ffad63; }
+.mode-toggle.active i { background: rgba(255,106,0,.45); }
+.mode-toggle.active i::after { transform: translateX(14px); background: #ff9b48; }
+.chaos-mode-badge { position: absolute; top: 96px; left: 50%; z-index: 1; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 8px 16px; border: 1px solid rgba(255,79,110,.65); border-radius: 999px; color: #ffd6df; background: rgba(67,9,27,.86); box-shadow: 0 0 22px rgba(255,30,75,.3); font: 800 12px var(--font-display); letter-spacing: 2px; pointer-events: none; }
+.chaos-mode-badge b { color: #fff0a8; font-size: 10px; }
+.chaos-mode-badge.hidden { display: none; }
+body.chaos-mode #game-container canvas { filter: hue-rotate(-18deg) saturate(1.28) contrast(1.06); transition: filter .35s ease; }
+.chaos-blackout, .chaos-slip { position: absolute; inset: 0; z-index: 90; opacity: 0; pointer-events: none; }
+.chaos-blackout { background: #000; transition: opacity .08s linear; }
+.chaos-blackout.active { opacity: 1; }
+.chaos-slip { z-index: 6; background: radial-gradient(ellipse at center bottom, transparent 35%, rgba(255,83,47,.22)); opacity: 0; transition: opacity .15s ease; }
+.chaos-slip.active { opacity: 1; animation: chaosSlip .22s ease-in-out infinite alternate; }
+@keyframes chaosSlip { from { transform: translateX(-5px) skewX(-.4deg); } to { transform: translateX(5px) skewX(.4deg); } }
+@media (prefers-reduced-motion: reduce) { .chaos-slip.active { animation: none; } }
 
 /* Dark gradient over the live 3D temple so text stays readable */
 .home-shade {

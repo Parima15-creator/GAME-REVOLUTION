@@ -33,6 +33,17 @@ export class MonsterManager {
       color: 0xffea00,
     });
 
+    const badgeCanvas = document.createElement('canvas');
+    badgeCanvas.width = 256; badgeCanvas.height = 128;
+    const badgeCtx = badgeCanvas.getContext('2d');
+    badgeCtx.fillStyle = 'rgba(12,16,22,.9)';
+    badgeCtx.beginPath(); badgeCtx.roundRect(8, 8, 240, 112, 28); badgeCtx.fill();
+    badgeCtx.strokeStyle = '#ff8a3d'; badgeCtx.lineWidth = 8; badgeCtx.stroke();
+    badgeCtx.font = '900 74px Orbitron, sans-serif'; badgeCtx.textAlign = 'center'; badgeCtx.textBaseline = 'middle';
+    badgeCtx.fillStyle = '#fff'; badgeCtx.fillText('×2', 128, 67);
+    this.pairBadgeTexture = new THREE.CanvasTexture(badgeCanvas);
+    this.pairBadgeMaterial = new THREE.SpriteMaterial({ map: this.pairBadgeTexture, transparent: true, depthTest: false });
+
     this.shardMat = new THREE.MeshStandardMaterial({
       color: 0x2b323d,
       roughness: 0.8,
@@ -217,6 +228,8 @@ export class MonsterManager {
 
   // Try to hit any monster near the player's punch
   checkPunchHit(playerZ, playerLaneX) {
+    const now = performance.now();
+    if (now - this.lastPunchAt < 125) return null;
     for (let i = 0; i < this.monsters.length; i++) {
       const monster = this.monsters[i];
       if (!monster.alive) continue;
@@ -229,21 +242,58 @@ export class MonsterManager {
 
         // Can punch monster in current lane or adjacent lane reach
         if (lateralDist <= 3.2) {
+          this.lastPunchAt = now;
           this.shatterMonster(monster);
           this.monsters.splice(i, 1);
-          return true; // Successfully punched monster!
+          const pair = monster.pairId && this.monsters.find((m) => m.alive && m.pairId === monster.pairId);
+          if (pair) {
+            pair.isPairedSecond = false;
+            pair.pairId = monster.pairId;
+            return { paired: true, remaining: 1 };
+          }
+          return { paired: false, remaining: 0 };
         }
       }
     }
     return false;
   }
 
-  update(playerZ, playerLaneX, delta, onMonsterEvent) {
+  update(playerZ, playerLaneX, delta, onMonsterEvent, distance = 0, score = 0) {
     // 1. Procedurally spawn monsters ahead
     if (playerZ - 70 < this.nextSpawnZ) {
       const randomLane = Math.floor(Math.random() * 3);
+      const advanced = distance >= 150 || score >= 2500;
+      const doubleThreat = distance >= 360 || score >= 6000;
+      const moving = advanced && Math.random() < 0.42;
       const monster = this.createMagmaGolem(randomLane, this.nextSpawnZ);
+      monster.patrol = moving;
+      monster.patrolPhase = Math.random() * Math.PI * 2;
+      monster.baseLane = randomLane;
       this.monsters.push(monster);
+      if (doubleThreat && Math.random() < 0.38) {
+        if (Math.random() < 0.32) {
+          const pairId = `pair-${this.nextSpawnZ}-${Math.random()}`;
+          monster.pairId = pairId;
+          monster.isPairedFront = true;
+          monster.patrol = false;
+          const badge = new THREE.Sprite(this.pairBadgeMaterial);
+          badge.scale.set(1.05, .52, 1); badge.position.set(0, 4.55, .35); monster.add(badge);
+          const second = this.createMagmaGolem(randomLane, this.nextSpawnZ - 2.5);
+          second.pairId = pairId; second.isPairedSecond = true;
+          second.patrol = false;
+          second.patrolPhase = monster.patrolPhase + Math.PI;
+          second.baseLane = randomLane;
+          second.position.x = this.lanes[randomLane];
+          this.monsters.push(second);
+        } else {
+          const otherLane = (randomLane + 1 + Math.floor(Math.random() * 2)) % 3;
+          const second = this.createMagmaGolem(otherLane, this.nextSpawnZ);
+          second.patrol = moving && Math.random() < 0.5;
+          second.patrolPhase = monster.patrolPhase + Math.PI;
+          second.baseLane = otherLane;
+          this.monsters.push(second);
+        }
+      }
       this.nextSpawnZ -= this.minDistanceBetweenMonsters + Math.random() * 14;
     }
 
@@ -254,6 +304,14 @@ export class MonsterManager {
 
       // Charge forward towards player slightly
       monster.walkCycle += delta * 7.0;
+      if (monster.patrol) {
+        monster.patrolPhase += delta * 1.15;
+        const laneFloat = monster.baseLane + Math.sin(monster.patrolPhase) * 0.82;
+        monster.laneIdx = Math.max(0, Math.min(2, Math.round(laneFloat)));
+        monster.position.x = THREE.MathUtils.damp(monster.position.x, this.lanes[monster.laneIdx], 5, delta);
+        monster.position.x += Math.sin(monster.patrolPhase) * 0.22;
+        if (monster.reticle) monster.reticle.material && (monster.reticle.children.forEach((c) => c.material.opacity = 0.85));
+      }
       monster.z += delta * 3.0; // Moves towards player
       monster.position.z = monster.z;
 
@@ -363,5 +421,6 @@ export class MonsterManager {
     }
     this.shards = [];
     this.nextSpawnZ = -45;
+    this.lastPunchAt = -Infinity;
   }
 }

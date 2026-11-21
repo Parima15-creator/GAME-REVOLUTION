@@ -41,6 +41,8 @@ export class Calibrator {
 
     // PS5-GRADE: Ankle & knee baseline for advanced detection
     this.baselineAnkleY = 0.90;
+    this.baselineLeftAnkleY = 0.90;
+    this.baselineRightAnkleY = 0.90;
     this.baselineKneeAngle = 170;  // Standing knee angle (~170°)
     this.baselineHipX = 0.50;     // Hip X for more stable lane detection
 
@@ -63,7 +65,7 @@ export class Calibrator {
     this.lastPunchTime = 0;
     this.lastLeftPunchTime = 0;
     this.lastRightPunchTime = 0;
-    this.punchCooldown = 220;  // ms per arm for fluid 1-2 combos
+    this.punchCooldown = 140;  // ms per arm so physical double punches register cleanly
     this.punchHoldFrames = 0;  // Hold visual 'PUNCH' badge & canvas glow for ~160ms
     this.lastPunchSide = 'right';
     this.punchReach = 0;       // Live normalized arm reach (0-100%) for UI meters
@@ -174,14 +176,17 @@ export class Calibrator {
       // Hands out to the side (T-pose / shrug) instead of in front of the chest.
       // Measured against the body midline: a guard keeps both hands inside a
       // bit more than half a shoulder width of centre.
-      const maxOffset = Math.max(0.12, shoulderWidth * 0.85);
+      // Hands at a comfortable boxing guard can sit outside the torso centre,
+      // especially when the camera is mirrored or shoulders are angled. Keep
+      // them within the shoulders while allowing a natural chest-width stance.
+      const maxOffset = Math.max(0.16, shoulderWidth * 1.15);
       if (Math.abs(wristX - (pose.midShoulderX || 0.5)) > maxOffset) {
         return { ok: false, reason: 'wide' };
       }
-      // Proportion-free "arms are down" test: a hanging wrist sits an arm-length
-      // from the shoulder (>= ~0.85 torso), a guard keeps it much closer.
+      // Reject clearly hanging or fully extended arms without requiring a
+      // tight bend; camera perspective makes the measured reach vary by player.
       const reach = Math.hypot(wristX - shoulderX, wristY - shoulderY) / torso;
-      if (reach > 0.85) return { ok: false, reason: 'low' };
+      if (reach > 1.15) return { ok: false, reason: 'low' };
       return { ok: true, reason: '' };
     };
 
@@ -302,8 +307,9 @@ export class Calibrator {
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          width: { ideal: 640 },
-          height: { ideal: 480 },
+          width: { ideal: 480 },
+          height: { ideal: 360 },
+          frameRate: { ideal: 30, max: 30 },
           facingMode: 'user',
         },
         audio: false,
@@ -340,6 +346,8 @@ export class Calibrator {
     this.baselineWristRightY = pose.rightWristY || 0.60;
     this.baselineShoulderWidth = pose.shoulderWidth || 0.22;
     this.baselineAnkleY = ((pose.leftAnkleY || 0.90) + (pose.rightAnkleY || 0.90)) / 2;
+    this.baselineLeftAnkleY = pose.leftAnkleY ?? this.baselineAnkleY;
+    this.baselineRightAnkleY = pose.rightAnkleY ?? this.baselineAnkleY;
     this.baselineKneeAngle = pose.avgKneeAngle || 170;
     this.baselineHipX = pose.midHipX || pose.midShoulderX;
     this.prevShoulderY = this.baselineY;
@@ -411,6 +419,8 @@ export class Calibrator {
       this.baselineWristRightY = median(pool.map(f => f.rightWristY || 0.60));
       this.baselineShoulderWidth = median(pool.map(f => f.shoulderWidth || 0.22));
       this.baselineAnkleY = median(pool.map(f => ((f.leftAnkleY || 0.90) + (f.rightAnkleY || 0.90)) / 2));
+      this.baselineLeftAnkleY = median(pool.map(f => f.leftAnkleY ?? this.baselineAnkleY));
+      this.baselineRightAnkleY = median(pool.map(f => f.rightAnkleY ?? this.baselineAnkleY));
       this.baselineKneeAngle = median(pool.map(f => f.avgKneeAngle || 170));
       this.baselineHipX = median(pool.map(f => f.midHipX || f.midShoulderX));
       this.prevShoulderY = this.baselineY;

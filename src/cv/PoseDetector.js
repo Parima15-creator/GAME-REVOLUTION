@@ -63,6 +63,10 @@ export class PoseDetector {
     this.isModelReady = false;
     this.modelTier = 'full'; // 'lite' (ultra fast) | 'full' (balanced) | 'heavy' (high GPU)
     this.enableHandLandmarker = false; // Fast BlazePose 33-pt fist detection is enabled by default (0ms overhead)
+    this.inferenceCanvas = document.createElement('canvas');
+    this.inferenceCanvas.width = 320;
+    this.inferenceCanvas.height = 240;
+    this.inferenceContext = this.inferenceCanvas.getContext('2d', { alpha: false, desynchronized: true });
 
     // Optical tracking engine resources (fallback when models fail)
     this.opticalCanvas = document.createElement('canvas');
@@ -256,7 +260,11 @@ export class PoseDetector {
         }
         this.lastPoseTimestamp = timestamp;
 
-        const poseResult = this.poseLandmarker.detectForVideo(videoElement, timestamp);
+        // Feed the model a consistent, smaller frame so CPU inference does not
+        // steal as much time from the game's render loop. The live preview keeps
+        // its full camera resolution.
+        this.inferenceContext.drawImage(videoElement, 0, 0, 320, 240);
+        const poseResult = this.poseLandmarker.detectForVideo(this.inferenceCanvas, timestamp);
 
         if (poseResult && poseResult.landmarks && poseResult.landmarks.length > 0) {
           rawPose = this.normalizeMediaPipePose(poseResult);

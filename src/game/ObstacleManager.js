@@ -184,11 +184,53 @@ export class ObstacleManager {
     return group;
   }
 
-  update(playerZ, playerLaneX, isJumping, isSquatting, delta, onObstacleEvent) {
+  createNailStrip(z, lanes = [1]) {
+    const group = new THREE.Group();
+    group.obstacleType = 'JUMP'; group.z = z; group.resolved = false; group.scored = false;
+    group.blockedLanes = lanes;
+    for (const idx of lanes) {
+      const x = this.lanes[idx];
+      const bed = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.1, 1.15), this.dangerGlowMat);
+      bed.position.set(x, 0.06, 0); group.add(bed);
+      for (let i = 0; i < 7; i++) {
+        const nail = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.48, 5), this.ironSpikeMat);
+        nail.position.set(x - 1.05 + i * 0.35, 0.32, 0); group.add(nail);
+      }
+    }
+    group.position.z = z; this.scene.add(group); return group;
+  }
+
+  createPhaseGhost(z, laneIdx) {
+    const group = new THREE.Group(); group.obstacleType = 'GHOST'; group.z = z;
+    group.resolved = false; group.scored = false; group.phase = Math.random() * Math.PI * 2;
+    group.laneIdx = laneIdx; group.visiblePhase = true;
+    const mat = new THREE.MeshBasicMaterial({ color: 0x9af7ff, transparent: true, opacity: 0.48, wireframe: true });
+    const ghost = new THREE.Mesh(new THREE.OctahedronGeometry(1.15, 1), mat); ghost.position.y = 1.7; group.add(ghost);
+    const glow = new THREE.PointLight(0x65eaff, 1.5, 6); glow.position.y = 1.7; group.add(glow);
+    group.ghostMesh = ghost; group.position.set(this.lanes[laneIdx], 0, z); this.scene.add(group); return group;
+  }
+
+  createCombo(z, barLane, nailLane) {
+    const group = new THREE.Group(); group.obstacleType = 'COMBO'; group.z = z;
+    group.resolved = false; group.scored = false;
+    group.actions = [{ lane: barLane, type: 'SLIDE' }, { lane: nailLane, type: 'JUMP' }];
+    // A third lane is intentionally left open as the fair route.
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.34, 0.45), this.ironSpikeMat);
+    bar.position.set(this.lanes[barLane], 1.45, 0); group.add(bar);
+    for (let i = 0; i < 7; i++) {
+      const nail = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.5, 5), this.ironSpikeMat);
+      nail.position.set(this.lanes[nailLane] - 1.0 + i * 0.34, 0.3, 0); group.add(nail);
+    }
+    const warning = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.06, 0.08), this.dangerGlowMat);
+    warning.position.set(this.lanes[barLane], 1.18, 0); group.add(warning);
+    group.position.z = z; this.scene.add(group); return group;
+  }
+
+  update(playerZ, playerLaneX, isJumping, isSquatting, delta, onObstacleEvent, distance = 0, score = 0) {
     // 1. Procedurally spawn obstacles ahead.
     // Spacing tightens gradually with distance travelled so the course ramps up.
     if (playerZ - this.spawnDistanceAhead < this.nextSpawnZ) {
-      this.spawnNextObstacle(this.nextSpawnZ);
+      this.spawnNextObstacle(this.nextSpawnZ, distance, score);
       const travelled = Math.max(0, -playerZ);
       const gap = Math.max(18, this.minDistanceBetweenObstacles - travelled * 0.012);
       this.nextSpawnZ -= gap + Math.random() * 8;
@@ -208,6 +250,13 @@ export class ObstacleManager {
 
       // Check collision window (|obs.z - playerZ| <= 1.2m)
       const distToPlayer = obs.z - playerZ;
+      if (obs.obstacleType === 'GHOST') {
+        obs.phase += delta * 2.1;
+        const alpha = 0.12 + (Math.sin(obs.phase) + 1) * 0.31;
+        obs.ghostMesh.material.opacity = alpha;
+        obs.visiblePhase = Math.sin(obs.phase) > -0.35;
+        obs.ghostMesh.rotation.y += delta * 0.9;
+      }
 
       // When obstacle is in front approaching, trigger cue notification.
       // distToPlayer is negative while the obstacle is still ahead of you.
@@ -231,7 +280,9 @@ export class ObstacleManager {
 
         if (obs.obstacleType === 'JUMP') {
           // Player must be jumping
-          if (!isJumping) {
+          const playerLaneIdx = this.getClosestLaneIndex(playerLaneX);
+          if (obs.blockedLanes && !obs.blockedLanes.includes(playerLaneIdx)) { obs.scored = true; }
+          else if (!isJumping) {
             isHit = true;
           } else {
             obs.scored = true;
@@ -251,6 +302,15 @@ export class ObstacleManager {
           } else {
             obs.scored = true;
           }
+        } else if (obs.obstacleType === 'GHOST') {
+          const inLane = this.getClosestLaneIndex(playerLaneX) === obs.laneIdx;
+          isHit = inLane && obs.visiblePhase;
+          if (!isHit) obs.scored = true;
+        } else if (obs.obstacleType === 'COMBO') {
+          const lane = this.getClosestLaneIndex(playerLaneX);
+          const action = obs.actions.find((item) => item.lane === lane);
+          if (action) isHit = action.type === 'JUMP' ? !isJumping : !isSquatting;
+          if (!action || !isHit) obs.scored = true;
         }
 
         obs.resolved = true;
@@ -284,12 +344,28 @@ export class ObstacleManager {
     return closestIdx;
   }
 
-  spawnNextObstacle(z) {
+  removeObstacle(obstacle) {
+    const index = this.obstacles.indexOf(obstacle);
+    if (index < 0) return;
+    this.scene.remove(obstacle);
+    this.obstacles.splice(index, 1);
+  }
+
+  spawnNextObstacle(z, distance = 0, score = 0) {
     // Choose random obstacle type
     const roll = Math.random();
     let obs = null;
 
-    if (roll < 0.35) {
+    if (distance >= 230 && Math.random() < 0.15) {
+      obs = this.createPhaseGhost(z, Math.floor(Math.random() * 3));
+    } else if (distance >= 300 && Math.random() < 0.16) {
+      const barLane = Math.floor(Math.random() * 3);
+      const nailLane = (barLane + 1) % 3;
+      obs = this.createCombo(z, barLane, nailLane);
+    } else if (distance >= 120 && roll < 0.28) {
+      const nailLane = Math.floor(Math.random() * 3);
+      obs = this.createNailStrip(z, Math.random() < 0.25 ? [nailLane, (nailLane + 1) % 3] : [nailLane]);
+    } else if (roll < 0.35) {
       // JUMP Hurdle
       obs = this.createSpikeHurdle(z);
     } else if (roll < 0.70) {

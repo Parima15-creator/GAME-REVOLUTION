@@ -5,6 +5,7 @@
 import { SceneManager } from './SceneManager.js';
 import { Environment } from './Environment.js';
 import { ObstacleManager } from './ObstacleManager.js';
+import { PickupManager } from './PickupManager.js';
 import { MonsterManager } from './MonsterManager.js';
 import { PlayerHands } from './PlayerHands.js';
 import { ChaserManager, CHASE } from './ChaserManager.js';
@@ -23,6 +24,7 @@ export class GameController {
     this.environment = new Environment(this.sceneManager.scene);
     this.obstacleManager = new ObstacleManager(this.sceneManager.scene);
     this.monsterManager = new MonsterManager(this.sceneManager.scene);
+    this.pickupManager = new PickupManager(this.sceneManager.scene);
     this.playerHands = new PlayerHands(this.sceneManager.camera);
     this.chaser = new ChaserManager(this.sceneManager.scene);
     this.sound = new SoundManager();
@@ -36,6 +38,10 @@ export class GameController {
     this._isInferringPose = false;
     this._latestPose = null;
     this._latestMotion = null;
+    this._lastPoseVideo = null;
+    this._lastPoseVideoTime = -1;
+    this._lastPoseProcessedAt = 0;
+    this._lastCVDelta = 1 / 30;
 
     // Player State
     this.playerZ = 0;
@@ -54,7 +60,10 @@ export class GameController {
     this.isPaused = false;
     this.score = 0;
     this.distance = 0;
-    this.lives = 3;
+    this.lives = this.maxLives;
+    this.maxLives = 3;
+    this.shieldTimer = 0;
+    this.invulnerabilityTimer = 0;
     this.combo = 0;
     this.comboMultiplier = 1;
     this.maxCombo = 1;
@@ -96,6 +105,17 @@ export class GameController {
     this.cameraError = '';
     this.settings = this.loadSettings();
     this.coach = this.loadCoach();
+    this.chaosMode = false;
+    this.chaosEffect = null;
+    this.chaosEffectTimer = 0;
+    this.chaosNextEffectIn = 0;
+    this.chaosSlipTimer = 0;
+    this.chaosLastActionAt = 0;
+    this.chaosTurboUntil = 0;
+    this._lastRunPose = null;
+    this._runFootSide = null;
+    this._runFootSwitches = 0;
+    this._lastRunFootSwitchAt = 0;
     // Spoken lines are opt-in: routine obstacle cues are silent by design.
     this.sound.voiceEnabled = this.settings.voice === true;
 
@@ -206,12 +226,14 @@ export class GameController {
           this.targetLaneX = Math.max(-2.8, this.targetLaneX - 2.8);
           this.reps.steps++;
           this.ui.bumpRep('steps');
+          this.noteChaosAction();
         }
       } else if (e.code === 'KeyD' || e.code === 'ArrowRight') {
         if (this.targetLaneX < 2.8) {
           this.targetLaneX = Math.min(2.8, this.targetLaneX + 2.8);
           this.reps.steps++;
           this.ui.bumpRep('steps');
+          this.noteChaosAction();
         }
       } else if (e.code === 'KeyJ') {
         this.triggerPunch('left');
@@ -305,6 +327,14 @@ export class GameController {
   // HOME / CAMERA / CALIBRATION / SETTINGS FLOW
   // =====================================================================
   initHome() {
+    document.getElementById('mode-toggle')?.addEventListener('click', () => {
+      this.chaosMode = !this.chaosMode;
+      const toggle = document.getElementById('mode-toggle');
+      toggle?.setAttribute('aria-pressed', String(this.chaosMode));
+      toggle?.classList.toggle('active', this.chaosMode);
+      document.body.classList.toggle('chaos-mode', this.chaosMode);
+      document.getElementById('chaos-mode-badge')?.classList.toggle('hidden', !this.chaosMode);
+    });
     document.getElementById('btn-play')?.addEventListener('click', () => this.onPlayPressed());
     document.getElementById('btn-how-to')?.addEventListener('click', () => this.openTutorial());
     document.getElementById('btn-settings')?.addEventListener('click', () => this.openSettings());
@@ -445,6 +475,10 @@ export class GameController {
     this.isSquatting = false;
     this.obstacleManager.reset();
     this.monsterManager.reset();
+    this.pickupManager.reset();
+    this.lives = this.maxLives;
+    this.shieldTimer = 0;
+    this.invulnerabilityTimer = 0;
     this.playerHands.resetPunches();
     this.chaser.reset();
     this.environment.reset();
@@ -453,6 +487,7 @@ export class GameController {
   }
 
   showHome() {
+    this.resetChaos();
     this.screen = 'home';
     this.isRunning = false;
     this.isPaused = false;
@@ -609,6 +644,27 @@ export class GameController {
         tutVideo.srcObject = this.calibrator.stream;
         tutVideo.play().catch(() => {});
       }
+      // Camera permission may resolve after the wizard has opened. In that
+      // case the no-camera fallback must not leave step 2 permanently skipped.
+      if (this.screen === 'calibration') {
+        this.calibAutoStart = this.settings.autoStart !== false;
+        this.calibFast = Boolean(this.calibrator.isCalibrated);
+        this.calib.baselineLocked = false;
+        this.calib.framedFor = 0;
+        this.calib.stableFor = 0;
+        this.calib.holdRef = null;
+        this.calib.tested = { jump: false, squat: false, step: false, punch: false };
+        this.calib.moveTestArmed = false;
+        this.calib.moveArmFor = 0;
+        this.calib.previousMotion = null;
+        this.calibrator.hasGuardBaseline = false;
+        this.calibrator.resetMotionState();
+        this.setStepState(1, 'active', 'WAIT');
+        this.setStepState(2, 'active', 'HOLD');
+        this.syncCalibrationUI();
+        this.setCalibrationHint(1, 'Camera live — step into frame.');
+        this.setCalibrationHint(2, 'Face the camera with both hands near your chest, then hold still.');
+      }
     } else {
       pip?.classList.add('no-camera');
       this.ui.updatePipTag('KEYBOARD');
@@ -622,6 +678,11 @@ export class GameController {
         : `${this.cameraError} You can play on the keyboard instead.`
     );
     document.getElementById('btn-cal-retry')?.classList.toggle('hidden', this.cameraReady);
+    if (!success && this.screen === 'calibration') {
+      this.setStepState(1, 'wait', 'NO CAMERA');
+      this.setStepState(2, 'wait', 'SKIP');
+      this.setCalibrationHint(3, 'Camera is off: use W/Space, S, A/D and J/K to check moves, or choose KEYBOARD MODE.');
+    }
 
     // Without a camera the wizard cannot validate, so never block the start button
     const startBtn = document.getElementById('btn-cal-start');
@@ -697,15 +758,23 @@ export class GameController {
     // Returning player: shorter, but still a fresh lock — a baseline left over
     // from an earlier run is exactly what makes the controls feel wrong.
     this.calibFast = Boolean(this.cameraReady && this.calibrator.isCalibrated);
-    this.calib.baselineLocked = !this.cameraReady;
+    // A missing camera skips calibration but must not masquerade as a locked
+    // baseline if camera access becomes available moments later.
+    this.calib.baselineLocked = false;
     this._autoStartFiring = false;
     this.setStepState(1, 'active', 'WAIT');
-    this.setStepState(2, this.calib.baselineLocked ? 'ok' : 'active', this.calib.baselineLocked ? 'LOCKED' : 'HOLD');
+    this.setStepState(2, this.cameraReady ? (this.calib.baselineLocked ? 'ok' : 'active') : 'wait', this.cameraReady ? (this.calib.baselineLocked ? 'LOCKED' : 'HOLD') : 'SKIP');
 
     const progress = document.getElementById('cal-progress');
     if (progress) progress.style.width = '0%';
 
     this.syncCalibrationUI();
+    if (!this.cameraReady && this.screen === 'calibration') {
+      const remaining = this.requiredMoves().filter((name) => !this.calib.tested[name]);
+      this.setCalibrationHint(3, remaining.length
+        ? `Keyboard check: ${remaining.map((name) => this.moveLabel(name)).join(', ')} remaining.`
+        : 'All moves checked - start your run when ready.');
+    }
 
     if (!this.cameraReady) this.retryCamera();
     const hint = this.calibAutoStart
@@ -782,7 +851,7 @@ export class GameController {
   /** Called from renderCameraOverlays with live framing telemetry. */
   updateCalibrationFromPose(pose) {
     if (this.screen !== 'calibration' || !pose) return;
-    const dt = this._lastFrameDelta || 0.016;
+    const dt = this._lastCVDelta || 1 / 30;
 
     const centered = Math.abs((pose.midShoulderX ?? 0.5) - 0.5) < 0.2;
     const goodDistance = (pose.torsoHeight || 0) > 0.16 && (pose.torsoHeight || 0) < 0.62;
@@ -936,11 +1005,11 @@ export class GameController {
 
     const neutral = Boolean(
       this._lastGuard?.ready && !motion.isJumping && !motion.isSquatting &&
-      motion.laneX === 0 && !motion.punchTriggered
+      Math.abs(motion.laneX || 0) < 1.4 && !motion.punchTriggered
     );
     if (!this.calib.moveTestArmed) {
       this.calib.moveArmFor = neutral
-        ? this.calib.moveArmFor + (this._lastFrameDelta || 0.016) * 1000
+        ? this.calib.moveArmFor + (this._lastCVDelta || 1 / 30) * 1000
         : 0;
       if (this.calib.moveArmFor >= 450) {
         this.calib.moveTestArmed = true;
@@ -951,12 +1020,34 @@ export class GameController {
     }
 
     const previous = this.calib.previousMotion || {};
-    if (motion.isJumping && !previous.isJumping) this.markMoveTested('jump');
-    if (motion.isSquatting && !previous.isSquatting) this.markMoveTested('squat');
+    const pose = motion.pose;
+    const previousPose = previous.pose;
+    const torso = Math.max(0.16, pose?.torsoHeight || this.calibrator.torsoHeight || 0.3);
+    const verticalDelta = pose ? pose.midShoulderY - this.calibrator.baselineY : 0;
+    const ankleY = pose ? ((pose.leftAnkleY ?? this.calibrator.baselineAnkleY) + (pose.rightAnkleY ?? this.calibrator.baselineAnkleY)) / 2 : this.calibrator.baselineAnkleY;
+    const ankleRise = this.calibrator.baselineAnkleY - ankleY;
+    const kneeJump = Boolean(pose?.hasLegTracking && pose.avgKneeAngle > 150 && ankleRise > torso * 0.045);
+    const jumpSignal = Boolean(motion.isJumping || verticalDelta < -torso * 0.075 || kneeJump);
+    const squatSignal = Boolean(motion.isSquatting || verticalDelta > torso * 0.085 || (pose?.hasLegTracking && pose.avgKneeAngle < 148));
+    if (jumpSignal && !previous._calJump) this.markMoveTested('jump');
+    if (squatSignal && !previous._calSquat) this.markMoveTested('squat');
     if ((motion.laneChanged && !previous.laneChanged) ||
-        (motion.laneX !== 0 && previous.laneX === 0)) this.markMoveTested('step');
-    if (motion.punchTriggered && !previous.punchTriggered) this.markMoveTested('punch');
-    this.calib.previousMotion = { ...motion };
+        (Math.abs(motion.laneX || 0) >= 1.4 && Math.abs(previous.laneX || 0) < 1.4)) this.markMoveTested('step');
+    const reachExtended = (side) => {
+      if (!pose || !previousPose) return false;
+      const reach = this.calibrator.reachRatio(pose, side);
+      const baselineReach = side === 'left' ? this.calibrator.baselineReachLeft : this.calibrator.baselineReachRight;
+      return reach > Math.max(0.7, baselineReach + 0.1) &&
+        reach - this.calibrator.reachRatio(previousPose, side) > 0.075;
+    };
+    const punchSignal = Boolean(motion.punchTriggered || reachExtended('left') || reachExtended('right'));
+    if (punchSignal && !previous._calPunch) this.markMoveTested('punch');
+    this.calib.previousMotion = {
+      ...motion,
+      _calJump: jumpSignal,
+      _calSquat: squatSignal,
+      _calPunch: punchSignal,
+    };
     // Rotate the highlight to whatever is still missing (stage 4 of the wizard).
     this.updateMoveSequence(this._lastGuard || { ready: true, reason: '' });
   }
@@ -969,6 +1060,12 @@ export class GameController {
     const tile = document.getElementById(`cal-test-${move}`);
     if (tile) tile.classList.add('done');
     this.syncCalibrationUI();
+    if (!this.cameraReady && this.screen === 'calibration') {
+      const remaining = this.requiredMoves().filter((name) => !this.calib.tested[name]);
+      this.setCalibrationHint(3, remaining.length
+        ? `Keyboard check: ${remaining.map((name) => this.moveLabel(name)).join(', ')} remaining.`
+        : 'All moves checked - start your run when ready.');
+    }
   }
 
   syncCalibrationUI() {
@@ -1263,6 +1360,12 @@ export class GameController {
       this.tutAdvanceTimeout = null;
     }
     this.screen = 'playing';
+    this.resetChaos();
+    if (this.chaosMode) {
+      this.chaosNextEffectIn = 8 + Math.random() * 5;
+      this.chaosLastActionAt = performance.now();
+    }
+    this._lastRunPose = null;
     this.isTutorialActive = false;
     this.ui.hideAllModals();
     this.ui.hideActionPrompt();
@@ -1304,7 +1407,9 @@ export class GameController {
     this.keyboardSquatTimer = 0;
     this.score = 0;
     this.distance = 0;
-    this.lives = 3;
+    this.lives = this.maxLives;
+    this.shieldTimer = 0;
+    this.invulnerabilityTimer = 0;
     this.combo = 0;
     this.comboMultiplier = 1;
     this.maxCombo = 1;
@@ -1322,6 +1427,7 @@ export class GameController {
 
     this.obstacleManager.reset();
     this.monsterManager.reset();
+    this.pickupManager.reset();
     this.playerHands.resetPunches();
     this.calibrator.resetMotionState();
     this.chaser.reset();
@@ -1335,6 +1441,106 @@ export class GameController {
     this.sound.setMenuMode(false);
     this.sound.startMusic();
     this.sound.speakPrompt('Run!');
+  }
+
+  resetChaos() {
+    this.chaosEffect = null;
+    this.chaosEffectTimer = 0;
+    this.chaosNextEffectIn = 0;
+    this.chaosSlipTimer = 0;
+    this.chaosTurboUntil = 0;
+    this._runFootSide = null;
+    this._runFootSwitches = 0;
+    this.sceneManager.shakeIntensity = 0;
+    this.sceneManager.slipTimer = 0;
+    document.getElementById('chaos-blackout')?.classList.remove('active');
+    document.getElementById('chaos-slip')?.classList.remove('active');
+    document.getElementById('chaos-turbo-badge')?.classList.add('hidden');
+    document.getElementById('chaos-mode-badge')?.classList.toggle('hidden', !this.chaosMode);
+  }
+
+  noteChaosAction() {
+    if (this.chaosMode) this.chaosLastActionAt = performance.now();
+  }
+
+  updateBodyRunTracking(pose, motion) {
+    if (!this.isRunning || this.keyboardOnly || !this.chaosMode || !pose || pose === this._lastRunPose) return;
+    this._lastRunPose = pose;
+    const now = performance.now();
+    if (motion?.isJumping || motion?.isSquatting || motion?.laneChanged || motion?.punchTriggered) {
+      this.noteChaosAction();
+    }
+
+    const c = this.calibrator;
+    const torso = Math.max(.16, pose.torsoHeight || c.torsoHeight || .3);
+    const leftVisible = (pose.leftAnkleScore ?? 0) > .45;
+    const rightVisible = (pose.rightAnkleScore ?? 0) > .45;
+    let liftedSide = null;
+    if (leftVisible && rightVisible) {
+      const leftLift = c.baselineLeftAnkleY - pose.leftAnkleY;
+      const rightLift = c.baselineRightAnkleY - pose.rightAnkleY;
+      const liftThreshold = torso * .075;
+      if (leftLift > liftThreshold && rightLift <= liftThreshold * .65) liftedSide = 'left';
+      else if (rightLift > liftThreshold && leftLift <= liftThreshold * .65) liftedSide = 'right';
+    }
+
+    if (liftedSide) {
+      this.noteChaosAction();
+      if (this._runFootSide && liftedSide !== this._runFootSide) {
+        const interval = now - this._lastRunFootSwitchAt;
+        if (interval >= 120 && interval <= 1000) {
+          this._runFootSwitches++;
+          if (this._runFootSwitches >= 2) {
+            this.chaosTurboUntil = now + 1100;
+            this._runFootSwitches = 0;
+          }
+        } else {
+          this._runFootSwitches = 0;
+        }
+        this._lastRunFootSwitchAt = now;
+      } else if (!this._runFootSide) {
+        this._lastRunFootSwitchAt = now;
+      }
+      this._runFootSide = liftedSide;
+    } else if (!leftVisible || !rightVisible || this._runFootSide) {
+      // Let the other foot become the next rising foot after landing.
+      this._runFootSide = null;
+    }
+  }
+
+  updateChaos(delta) {
+    if (!this.chaosMode) return;
+    const now = performance.now();
+    if (this.chaosNextEffectIn <= 0) this.chaosNextEffectIn = 8 + Math.random() * 5;
+
+    this.chaosNextEffectIn -= delta;
+    if (this.chaosNextEffectIn <= 0 && !this.chaosEffect) {
+      this.chaosEffect = Math.random() < .5 ? 'blackout' : 'shake';
+      this.chaosEffectTimer = this.chaosEffect === 'blackout' ? 1 : .9;
+      if (this.chaosEffect === 'blackout') {
+        document.getElementById('chaos-blackout')?.classList.add('active');
+      }
+    }
+
+    if (this.chaosEffect) {
+      this.chaosEffectTimer -= delta;
+      if (this.chaosEffect === 'shake') this.sceneManager.triggerShake(.72);
+      if (this.chaosEffectTimer <= 0) {
+        this.chaosEffect = null;
+        document.getElementById('chaos-blackout')?.classList.remove('active');
+        this.chaosNextEffectIn = 14 + Math.random() * 8;
+      }
+    }
+
+    this.chaosSlipTimer = Math.max(0, this.chaosSlipTimer - delta);
+    document.getElementById('chaos-slip')?.classList.toggle('active', this.chaosSlipTimer > 0);
+    if (this.chaosSlipTimer > 0) this.sceneManager.triggerShake(.32);
+    else if (now - this.chaosLastActionAt > 6000) {
+      this.chaosSlipTimer = .8;
+      this.chaosLastActionAt = now;
+      this.sceneManager.triggerSlip(.8);
+      this.ui.showFeedback('SLIPPED! KEEP MOVING', 'miss');
+    }
   }
 
   toggleMute() {
@@ -1631,14 +1837,16 @@ export class GameController {
   }
 
   triggerJump() {
+    this.noteChaosAction();
     this.isJumping = true;
-    this.keyboardJumpTimer = 0.55; // 550ms jump air-time
+    this.keyboardJumpTimer = 0.55;
     this.sound.playJumpWhoosh();
     this.reps.jumps++;
     this.ui.bumpRep('jumps');
   }
 
   triggerSquat() {
+    this.noteChaosAction();
     this.isSquatting = true;
     this.keyboardSquatTimer = 0.65; // 650ms slide duration
     this.sound.playSlideScrape();
@@ -1647,6 +1855,7 @@ export class GameController {
   }
 
   triggerPunch(side = 'right') {
+    this.noteChaosAction();
     this.playerHands.triggerPunch(side);
     this.sound.playPunchImpact();
     this.reps.punches++;
@@ -1660,10 +1869,14 @@ export class GameController {
       this.sound.playMonsterShatter();
       this.sceneManager.triggerShake(0.5);
       this.ui.triggerHitFlash();
-      this.addCombo(250);
-      this.chaser.pushBack(CHASE.KILL_PUSH);
+      this.addCombo(hit.remaining > 0 ? 125 : 250);
+      if (hit.remaining === 0) this.chaser.pushBack(CHASE.KILL_PUSH);
       this.ui.updateChaseHud(this.chaser.gap);
-      this.ui.showFeedback('CRUSHED! +250', 'crushed');
+      if (hit.remaining > 0) {
+        this.ui.showFeedback('PAIR HIT · ONE LEFT', 'crushed');
+      } else {
+        this.ui.showFeedback('CRUSHED! +250', 'crushed');
+      }
     }
   }
 
@@ -1685,7 +1898,28 @@ export class GameController {
     this.sound.setBpm(128);
   }
 
+  collectPickup(type) {
+    if (type === 'shield') {
+      this.shieldTimer = 5;
+      this.sound.playComboChime(3);
+      this.ui.showFeedback('SHIELD ONLINE · 5s', 'perfect');
+    } else if (type === 'heart' && this.lives < this.maxLives) {
+      this.lives = Math.min(this.maxLives, this.lives + 1);
+      this.sound.playComboChime(2);
+      this.ui.showFeedback('EXTRA LIFE +1', 'perfect');
+    }
+  }
+
   takeDamage() {
+    if (!this.isRunning) return false;
+    if (this.shieldTimer > 0) {
+      this.sceneManager.triggerShake(.24);
+      this.ui.triggerHitFlash();
+      this.ui.showFeedback('SHIELD DEFLECT!', 'perfect');
+      this.sound.playPunchImpact();
+      return false;
+    }
+    if (this.invulnerabilityTimer > 0) return false;
     this.lives--;
     this.resetCombo();
     this.sound.playDamage();
@@ -1693,22 +1927,28 @@ export class GameController {
     this.ui.triggerDamageVfx();
     this.ui.showFeedback('HIT! -1 STAMINA', 'miss');
 
-    // The beast punishes every mistake immediately
+    if (this.lives > 0) {
+      this.invulnerabilityTimer = 1.5;
+      this.chaser.pushBack(CHASE.HIT_LUNGE + CHASE.CATCH_GAP + 1);
+      this.ui.showFeedback('LIFE SAVED · 1.5s', 'miss');
+      this.ui.updateChaseHud(this.chaser.gap);
+      return true;
+    }
+
+    // The beast punishes the final mistake immediately.
     this.chaser.lunge(CHASE.HIT_LUNGE);
     this.sound.playBeastRoar();
     this.ui.updateChaseHud(this.chaser.gap);
 
-    if (this.lives <= 0) {
-      this.caughtByBeast();
-    } else if (this.chaser.gap <= CHASE.CATCH_GAP) {
-      this.caughtByBeast();
-    }
+    this.caughtByBeast();
+    return true;
   }
 
   /** The beast reaches you: short cinematic lunge, then the run ends. */
   caughtByBeast() {
     if (this.caughtPending || !this.isRunning) return;
     this.caughtPending = true;
+    this.resetChaos();
     this.isRunning = false;
     this.screen = 'caught';
     this.sound.stopMusic();
@@ -1727,6 +1967,7 @@ export class GameController {
   }
 
   endRun({ caught = false, quit = false } = {}) {
+    this.resetChaos();
     this.isRunning = false;
     this.isPaused = false;
     this.screen = 'over';
@@ -1832,6 +2073,7 @@ export class GameController {
     } else if (event === 'HIT') {
       this.ui.hideActionPrompt();
       this.noteMiss(kind);
+      this.obstacleManager.removeObstacle(obs);
       this.takeDamage();
     }
   }
@@ -1856,6 +2098,13 @@ export class GameController {
     if (this._isInferringPose) return;
     const activeVideo = this.getActiveVideo();
     if (!activeVideo || activeVideo.videoWidth === 0 || activeVideo.paused) return;
+    if (activeVideo !== this._lastPoseVideo || activeVideo.currentTime < this._lastPoseVideoTime) {
+      this._lastPoseProcessedAt = 0;
+      this._lastPoseVideoTime = -1;
+    }
+    if (activeVideo.currentTime === this._lastPoseVideoTime) return;
+    this._lastPoseVideo = activeVideo;
+    this._lastPoseVideoTime = activeVideo.currentTime;
 
     this._isInferringPose = true;
     this.poseDetector.estimatePose(activeVideo).then((pose) => {
@@ -1863,8 +2112,14 @@ export class GameController {
       if (!pose) return;
 
       this._latestPose = pose;
+      const poseProcessedAt = performance.now();
+      this._lastCVDelta = this._lastPoseProcessedAt
+        ? Math.min(.12, (poseProcessedAt - this._lastPoseProcessedAt) / 1000)
+        : 1 / 30;
+      this._lastPoseProcessedAt = poseProcessedAt;
       const motion = this.calibrator.processFrame(pose);
       this._latestMotion = motion;
+      this.updateBodyRunTracking(pose, motion);
 
       // Render camera canvas overlays & UI meters
       this.renderCameraOverlays(pose, motion);
@@ -1895,8 +2150,9 @@ export class GameController {
           this.triggerPunch(motion.punchSide || 'right');
         }
         // Lateral lane tracking from body position
-        if (Math.abs(motion.laneX - this.targetLaneX) > 1.5) {
-          this.targetLaneX = motion.laneX;
+        const trackedLane = motion.laneX;
+        if (Math.abs(trackedLane - this.targetLaneX) > 1.5) {
+          this.targetLaneX = trackedLane;
           this.reps.steps++;
           this.ui.bumpRep('steps');
         }
@@ -2023,9 +2279,13 @@ export class GameController {
 
     // Process Game Loop if Running
     if (this.isRunning && !this.isPaused) {
+      this.updateChaos(delta);
+      this.runSpeed = Math.min(18.0, 10.5 + (this.distance / 250));
+      const speedScale = this.chaosMode && performance.now() < this.chaosTurboUntil ? 1.5 : 1;
+      document.getElementById('chaos-turbo-badge')?.classList.toggle('hidden', speedScale <= 1);
       // Progress forward distance
-      this.playerZ -= this.runSpeed * delta;
-      this.distance += this.runSpeed * delta;
+      this.playerZ -= this.runSpeed * speedScale * delta;
+      this.distance += this.runSpeed * speedScale * delta;
       this.elapsedSeconds += delta;
       if (!this._hintsDimmed && this.elapsedSeconds > 18) {
         this._hintsDimmed = true;
@@ -2033,7 +2293,6 @@ export class GameController {
       }
 
       // Accelerate speed slightly as distance increases
-      this.runSpeed = Math.min(18.0, 10.5 + (this.distance / 250));
 
       // Handle keyboard jump/squat timers
       if (this.keyboardJumpTimer > 0) {
@@ -2044,6 +2303,8 @@ export class GameController {
         this.keyboardSquatTimer -= delta;
         if (this.keyboardSquatTimer <= 0) this.isSquatting = false;
       }
+      this.shieldTimer = Math.max(0, this.shieldTimer - delta);
+      this.invulnerabilityTimer = Math.max(0, this.invulnerabilityTimer - delta);
 
       // Combo cooldown
       if (this.comboTimer > 0) {
@@ -2068,13 +2329,17 @@ export class GameController {
         this.isJumping,
         this.isSquatting,
         delta,
-        (ev, type, obs) => this.handleObstacleEvent(ev, type, obs)
+        (ev, type, obs) => this.handleObstacleEvent(ev, type, obs), this.distance, this.score
+      );
+      this.pickupManager.update(
+        this.playerZ, this.targetLaneX, this.distance, this.lives, delta,
+        (type) => this.collectPickup(type)
       );
       this.monsterManager.update(
         this.playerZ,
         this.targetLaneX,
         delta,
-        (ev, monster) => this.handleMonsterEvent(ev, monster)
+        (ev, monster) => this.handleMonsterEvent(ev, monster), this.distance, this.score
       );
       this.playerHands.update(this.runSpeed, delta);
 
@@ -2083,12 +2348,14 @@ export class GameController {
         score: this.score,
         bestScore: Math.max(this.bestScore, this.score),
         distance: this.distance,
-        speed: this.runSpeed,
+        speed: this.runSpeed * speedScale,
         comboMultiplier: this.comboMultiplier,
         comboProgress: this.comboTimer / 3.5,
         caloriesBurned: this.caloriesBurned,
         estimatedBpm: this.estimatedBpm,
         lives: this.lives,
+        shieldRemaining: this.shieldTimer,
+        invulnerabilityRemaining: this.invulnerabilityTimer,
         reps: this.reps,
       });
 
@@ -2129,8 +2396,10 @@ export class GameController {
         }
       }
 
-      if (gap <= CHASE.CATCH_GAP) {
-        this.caughtByBeast();
+      if (gap <= CHASE.CATCH_GAP && this.isRunning) {
+        if (this.lives <= 0) this.caughtByBeast();
+        else if (this.invulnerabilityTimer <= 0) this.takeDamage();
+        else this.chaser.pushBack(CHASE.CATCH_GAP + 1);
       }
     }
 

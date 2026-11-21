@@ -15,6 +15,8 @@ export class UIManager {
     this.caloriesEl = document.getElementById('hud-calories');
     this.bpmEl = document.getElementById('hud-bpm');
     this.heartsEl = document.getElementById('health-hearts');
+    this.shieldEl = document.getElementById('shield-indicator');
+    this.shieldTimeEl = document.getElementById('shield-countdown');
 
     // Action Prompts
     this.promptContainer = document.getElementById('action-prompt');
@@ -110,6 +112,14 @@ export class UIManager {
         h.classList.add('lost');
       }
     });
+    const shieldRemaining = Math.max(0, stats.shieldRemaining || 0);
+    if (this.shieldEl) {
+      this.shieldEl.classList.toggle('hidden', shieldRemaining <= 0);
+      this.shieldEl.classList.toggle('urgent', shieldRemaining > 0 && shieldRemaining <= 1.5);
+    }
+    if (this.shieldTimeEl) this.shieldTimeEl.textContent = `${shieldRemaining.toFixed(1)}s`;
+    const invulnerable = (stats.invulnerabilityRemaining || 0) > 0;
+    document.getElementById('vignette-invulnerable')?.classList.toggle('active', invulnerable);
 
     // Reps
     this.countJumps.textContent = stats.reps.jumps;

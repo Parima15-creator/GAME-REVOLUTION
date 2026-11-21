@@ -38,6 +38,8 @@ export class SceneManager {
     this.bobPhase = 0;
     this.shakeIntensity = 0;
     this.hitStopFrames = 0;
+    this.slipTimer = 0;
+    this.slipPhase = 0;
 
     this.init();
   }
@@ -69,7 +71,6 @@ export class SceneManager {
     // The camera MUST be part of the scene graph, otherwise its children
     // (the first-person boxing gloves) are never traversed and never rendered.
     this.scene.add(this.camera);
-
     this.setupLighting();
     this.setupResizeHandler();
   }
@@ -133,6 +134,11 @@ export class SceneManager {
     this.shakeIntensity = amount;
   }
 
+  triggerSlip(duration = .8) {
+    this.slipTimer = duration;
+    this.slipPhase = 0;
+  }
+
   triggerHitStop(frames = 0) {
     // Punch impacts use screen shake and flash instead of visual freezing
   }
@@ -148,6 +154,8 @@ export class SceneManager {
     this.cameraRoll = 0;
     this.bobPhase = 0;
     this.shakeIntensity = 0;
+    this.slipTimer = 0;
+    this.slipPhase = 0;
     this.hitStopFrames = 0;
     this.camera.position.set(0, 1.75, 0);
     this.camera.rotation.set(0, 0, 0);
@@ -165,7 +173,7 @@ export class SceneManager {
     // Compute target Y height based on workout actions
     let targetY = 1.75; // Standard standing eye height
     if (isJumping) {
-      targetY = 2.85; // Jump leap
+      targetY = 2.85;
     } else if (isSquatting) {
       targetY = 0.75; // Deep squat / slide drop
     }
@@ -184,15 +192,23 @@ export class SceneManager {
 
     // Camera lean / roll when dodging lanes
     const lateralVel = (this.playerLaneX - this.currentCameraX);
-    const targetRoll = -lateralVel * 0.08;
+    let slipRoll = 0;
+    if (this.slipTimer > 0) {
+      this.slipTimer = Math.max(0, this.slipTimer - delta);
+      this.slipPhase += delta * 24;
+      slipRoll = Math.sin(this.slipPhase) * .2;
+    }
+    const targetRoll = -lateralVel * 0.08 + slipRoll;
     this.cameraRoll += (targetRoll - this.cameraRoll) * Math.min(1.0, delta * 10.0);
 
     // Screen shake decay
     let shakeX = 0;
     let shakeY = 0;
+    let shakeRoll = 0;
     if (this.shakeIntensity > 0.005) {
       shakeX = (Math.random() - 0.5) * this.shakeIntensity;
       shakeY = (Math.random() - 0.5) * this.shakeIntensity;
+      shakeRoll = (Math.random() - 0.5) * this.shakeIntensity * 0.08;
       this.shakeIntensity *= Math.pow(0.05, delta);
     } else {
       this.shakeIntensity = 0;
@@ -205,7 +221,7 @@ export class SceneManager {
       playerZ
     );
 
-    this.camera.rotation.set(0, 0, this.cameraRoll);
+    this.camera.rotation.set(0, 0, this.cameraRoll + shakeRoll);
 
     // Update player point light position
     this.playerLight.position.set(
